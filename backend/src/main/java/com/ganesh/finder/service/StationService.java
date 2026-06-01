@@ -11,6 +11,7 @@ import com.ganesh.finder.repository.ReviewRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.data.redis.core.RedisTemplate;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -26,13 +27,16 @@ public class StationService {
     private final StationRepository stationRepository;
     private final ChargerSlotRepository chargerSlotRepository;
     private final ReviewRepository reviewRepository;
+    private final RedisTemplate<String, Object> redisTemplate;
 
     public StationService(StationRepository stationRepository,
                           ChargerSlotRepository chargerSlotRepository,
-                          ReviewRepository reviewRepository) {
+                          ReviewRepository reviewRepository,
+                          RedisTemplate<String, Object> redisTemplate) {
         this.stationRepository = stationRepository;
         this.chargerSlotRepository = chargerSlotRepository;
         this.reviewRepository = reviewRepository;
+        this.redisTemplate = redisTemplate;
     }
 
     public record ViewportResponse(List<StationMarker> markers, boolean tooMany) {}
@@ -66,6 +70,22 @@ public class StationService {
      */
     public ViewportResponse getStationsInViewportOptimized(
             double neLat, double neLng, double swLat, double swLng) {
+
+        String cacheKey = String.format("viewport:%.3f:%.3f:%.3f:%.3f",
+                Math.round(neLat * 1000.0) / 1000.0,
+                Math.round(neLng * 1000.0) / 1000.0,
+                Math.round(swLat * 1000.0) / 1000.0,
+                Math.round(swLng * 1000.0) / 1000.0);
+
+        try {
+            ViewportResponse cached = (ViewportResponse) redisTemplate.opsForValue().get(cacheKey);
+            if (cached != null) {
+                log.info("Redis Cache HIT for key: {}", cacheKey);
+                return cached;
+            }
+        } catch (Exception e) {
+            log.error("Redis read error", e);
+        }
 
         double minLat = Math.min(swLat, neLat), maxLat = Math.max(swLat, neLat);
         double minLng = Math.min(swLng, neLng), maxLng = Math.max(swLng, neLng);
@@ -112,7 +132,16 @@ public class StationService {
             .limit(200)
             .collect(Collectors.toList());
 
-        return new ViewportResponse(markers, tooMany);
+        ViewportResponse response = new ViewportResponse(markers, tooMany);
+
+        try {
+            redisTemplate.opsForValue().set(cacheKey, response, java.time.Duration.ofHours(1));
+            log.info("Redis Cache MISS. Saved key: {}", cacheKey);
+        } catch (Exception e) {
+            log.error("Redis write error", e);
+        }
+
+        return response;
     }
 
     /**
