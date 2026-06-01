@@ -17,4 +17,9 @@ public interface ChargerSlotRepository extends JpaRepository<ChargerSlot, Long> 
     long countByStationId(Long stationId);
 
     void deleteByStationId(Long stationId);
+
+    @org.springframework.data.jpa.repository.Modifying
+    @org.springframework.data.jpa.repository.Query("DELETE FROM ChargerSlot c WHERE c.station.id IN :stationIds")
+    void deleteByStationIdIn(@org.springframework.data.repository.query.Param("stationIds") List<Long> stationIds);
 }
+

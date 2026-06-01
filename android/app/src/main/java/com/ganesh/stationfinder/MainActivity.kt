@@ -428,7 +428,7 @@ fun MapTabScreen(
                 uiSettings = MapUiSettings(myLocationButtonEnabled = true)
             ) {
                 if (markerState is MarkerUiState.Success) {
-                    val markers = (markerState as MarkerUiState.Success).markers
+                    val markers = (markerState as MarkerUiState.Success).markers.distinctBy { "${it.latitude},${it.longitude}" }
                     markers.forEach { marker ->
                         val isActive = marker.id == activeStationId
                         val isCompatible = selectedConnector == null || marker.connectorTypes?.contains(selectedConnector) == true

@@ -166,4 +166,20 @@ public class StationController {
                     .body(ApiResponse.error("Error: " + e.getMessage()));
         }
     }
+
+    /**
+     * POST /api/stations/cleanup-duplicates
+     */
+    @PostMapping("/cleanup-duplicates")
+    public ResponseEntity<ApiResponse<?>> cleanupDuplicates() {
+        try {
+            int deletedCount = stationService.removeDuplicateStations();
+            return ResponseEntity.ok(ApiResponse.success("Cleanup completed. Removed " + deletedCount + " duplicate stations.", Map.of("deletedCount", deletedCount)));
+        } catch (Exception e) {
+            log.error("Failed to run duplicate cleanup", e);
+            return ResponseEntity.internalServerError()
+                    .body(ApiResponse.error("Cleanup failed: " + e.getMessage()));
+        }
+    }
 }
+

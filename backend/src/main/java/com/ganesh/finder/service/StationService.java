@@ -46,16 +46,18 @@ public class StationService {
                 Math.min(swLat, neLat), Math.max(swLat, neLat),
                 Math.min(swLng, neLng), Math.max(swLng, neLng));
 
-        return stations.stream().map(station -> {
-            long availableSlots = chargerSlotRepository.countByStationIdAndIsAvailableTrue(station.getId());
-            return StationMarker.builder()
-                    .id(station.getId())
-                    .name(station.getName())
-                    .latitude(station.getLatitude())
-                    .longitude(station.getLongitude())
-                    .available(availableSlots > 0)
-                    .build();
-        }).collect(Collectors.toList());
+        return stations.stream()
+                .filter(distinctByKey(s -> s.getOcmId() != null ? "ocm_" + s.getOcmId() : s.getLatitude() + "," + s.getLongitude()))
+                .map(station -> {
+                    long availableSlots = chargerSlotRepository.countByStationIdAndIsAvailableTrue(station.getId());
+                    return StationMarker.builder()
+                            .id(station.getId())
+                            .name(station.getName())
+                            .latitude(station.getLatitude())
+                            .longitude(station.getLongitude())
+                            .available(availableSlots > 0)
+                            .build();
+                }).collect(Collectors.toList());
     }
 
     /**
@@ -78,6 +80,7 @@ public class StationService {
         double centerLng = (minLng + maxLng) / 2.0;
 
         List<StationMarker> markers = stations.stream()
+            .filter(distinctByKey(s -> s.getOcmId() != null ? "ocm_" + s.getOcmId() : s.getLatitude() + "," + s.getLongitude()))
             .map(station -> {
                 List<ChargerSlot> slots = station.getChargerSlots();
                 if (slots == null) {
@@ -126,6 +129,7 @@ public class StationService {
                 lng - lngDelta, lng + lngDelta);
 
         return stations.stream()
+                .filter(distinctByKey(s -> s.getOcmId() != null ? "ocm_" + s.getOcmId() : s.getLatitude() + "," + s.getLongitude()))
                 .map(station -> enrichWithScore(station, lat, lng))
                 .filter(s -> s.getDistance() <= radiusKm)
                 .sorted(Comparator.comparingDouble(StationWithScore::getDistance))
@@ -148,6 +152,7 @@ public class StationService {
         List<Station> stations = stationRepository.searchByNameOrAddress(query.toLowerCase().trim());
 
         return stations.stream()
+                .filter(distinctByKey(s -> s.getOcmId() != null ? "ocm_" + s.getOcmId() : s.getLatitude() + "," + s.getLongitude()))
                 .map(station -> enrichWithScore(station, lat, lng))
                 .filter(s -> s.getDistance() <= radiusKm)
                 .sorted(Comparator.comparingDouble(StationWithScore::getDistance))
@@ -302,7 +307,11 @@ public class StationService {
                 minLng - lngDelta, maxLng + lngDelta);
 
         List<StationWithScore> results = new ArrayList<>();
-        for (Station station : stations) {
+        List<Station> dedupedStations = stations.stream()
+                .filter(distinctByKey(s -> s.getOcmId() != null ? "ocm_" + s.getOcmId() : s.getLatitude() + "," + s.getLongitude()))
+                .collect(Collectors.toList());
+
+        for (Station station : dedupedStations) {
             double minDistance = Double.MAX_VALUE;
             for (int i = 0; i < waypoints.size() - 1; i++) {
                 double[] pA = waypoints.get(i);
@@ -379,5 +388,62 @@ public class StationService {
             poly.add(new double[]{latitude, longitude});
         }
         return poly;
+    }
+
+    private static <T> java.util.function.Predicate<T> distinctByKey(java.util.function.Function<? super T, ?> keyExtractor) {
+        java.util.Set<Object> seen = java.util.concurrent.ConcurrentHashMap.newKeySet();
+        return t -> seen.add(keyExtractor.apply(t));
+    }
+
+    @org.springframework.transaction.annotation.Transactional
+    public int removeDuplicateStations() {
+        List<Station> allStations = stationRepository.findAll();
+        List<Long> duplicateStationIds = new ArrayList<>();
+
+        // Group 1: By ocmId (only for non-null ocmId)
+        java.util.Map<Long, List<Station>> ocmGroups = allStations.stream()
+                .filter(s -> s.getOcmId() != null)
+                .collect(Collectors.groupingBy(Station::getOcmId));
+
+        for (java.util.Map.Entry<Long, List<Station>> entry : ocmGroups.entrySet()) {
+            List<Station> group = entry.getValue();
+            if (group.size() > 1) {
+                group.sort(Comparator.comparing(Station::getId));
+                for (int i = 1; i < group.size(); i++) {
+                    duplicateStationIds.add(group.get(i).getId());
+                }
+            }
+        }
+
+        // Group 2: By coordinates and name (for mock stations where ocmId is null)
+        java.util.Map<String, List<Station>> coordGroups = allStations.stream()
+                .filter(s -> !duplicateStationIds.contains(s.getId()))
+                .collect(Collectors.groupingBy(s -> {
+                    double lat = Math.round(s.getLatitude() * 100000.0) / 100000.0;
+                    double lng = Math.round(s.getLongitude() * 100000.0) / 100000.0;
+                    return s.getName().trim().toLowerCase() + "_" + lat + "_" + lng;
+                }));
+
+        for (java.util.Map.Entry<String, List<Station>> entry : coordGroups.entrySet()) {
+            List<Station> group = entry.getValue();
+            if (group.size() > 1) {
+                group.sort(Comparator.comparing(Station::getId));
+                for (int i = 1; i < group.size(); i++) {
+                    duplicateStationIds.add(group.get(i).getId());
+                }
+            }
+        }
+
+        if (!duplicateStationIds.isEmpty()) {
+            log.info("Found {} duplicate stations to delete.", duplicateStationIds.size());
+            reviewRepository.deleteByStationIdIn(duplicateStationIds);
+            chargerSlotRepository.deleteByStationIdIn(duplicateStationIds);
+            stationRepository.deleteAllById(duplicateStationIds);
+            log.info("Successfully deleted duplicate stations.");
+        } else {
+            log.info("No duplicate stations found.");
+        }
+
+        return duplicateStationIds.size();
     }
 }

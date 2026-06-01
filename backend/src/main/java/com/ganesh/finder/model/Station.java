@@ -12,7 +12,8 @@ import java.util.List;
 
 @Entity
 @Table(name = "stations", indexes = {
-    @Index(name = "idx_stations_lat_lng", columnList = "latitude, longitude")
+    @Index(name = "idx_stations_lat_lng", columnList = "latitude, longitude"),
+    @Index(name = "idx_stations_dedup", columnList = "name, latitude, longitude", unique = true)
 })
 @Data
 @Builder
@@ -45,6 +46,7 @@ public class Station {
     private Boolean isOpen;
 
     // OCM identifiers for dedup
+    @Column(unique = true)
     private Long ocmId;
     private String ocmUuid;
 

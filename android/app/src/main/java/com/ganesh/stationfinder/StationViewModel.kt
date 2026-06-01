@@ -102,7 +102,8 @@ class StationViewModel : ViewModel() {
             delay(800) // debounce
             _markerState.value = MarkerUiState.Loading
             try {
-                val (markers, tooMany) = repository.getStationsInViewport(neLat, neLng, swLat, swLng)
+                val (rawMarkers, tooMany) = repository.getStationsInViewport(neLat, neLng, swLat, swLng)
+                val markers = rawMarkers.distinctBy { "${it.latitude},${it.longitude}" }
                 viewportCache[key] = Pair(markers, tooMany)
                 if (viewportCache.size > 10) {
                     viewportCache.remove(viewportCache.keys.first())
@@ -144,9 +145,12 @@ class StationViewModel : ViewModel() {
         carouselJob = null
 
         // Sort markers by distance to the clicked pin
-        val sorted = markers.sortedBy { marker ->
-            haversineKm(pinLat, pinLng, marker.latitude, marker.longitude)
-        }.take(5)
+        val sorted = markers
+            .distinctBy { "${it.latitude},${it.longitude}" }
+            .sortedBy { marker ->
+                haversineKm(pinLat, pinLng, marker.latitude, marker.longitude)
+            }
+            .take(5)
 
         // Convert StationMarker → OCMStation with distance from user location
         _carouselStations.value = sorted.map { marker ->
