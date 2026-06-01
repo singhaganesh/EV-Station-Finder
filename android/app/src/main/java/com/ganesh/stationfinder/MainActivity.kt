@@ -40,6 +40,7 @@ import androidx.compose.foundation.clickable
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
 import com.google.android.gms.maps.model.BitmapDescriptorFactory
+import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.maps.android.compose.*
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -421,6 +422,23 @@ fun MapTabScreen(
                 }
             }
 
+            val activeStation = remember(visibleCarousel, pagerState.currentPage) {
+                if (visibleCarousel.isNotEmpty() && pagerState.currentPage in visibleCarousel.indices) {
+                    visibleCarousel[pagerState.currentPage]
+                } else null
+            }
+
+            // Smoothly animate map camera to center on the active station at 12f zoom
+            LaunchedEffect(activeStation) {
+                activeStation?.let { station ->
+                    val target = LatLng(station.latitude, station.longitude)
+                    cameraPositionState.animate(
+                        update = CameraUpdateFactory.newLatLngZoom(target, 12f),
+                        durationMs = 600
+                    )
+                }
+            }
+
             GoogleMap(
                 modifier = Modifier.fillMaxSize(),
                 cameraPositionState = cameraPositionState,
@@ -529,11 +547,6 @@ fun MapTabScreen(
                     stations = visibleCarousel,
                     pagerState = pagerState,
                     onStationClick = { station ->
-                        // Center camera on clicked station
-                        cameraPositionState.position = CameraPosition.fromLatLngZoom(
-                            LatLng(station.latitude, station.longitude),
-                            14f
-                        )
                         onStationClick(station)
                     },
                     onNavigateClick = { station ->
