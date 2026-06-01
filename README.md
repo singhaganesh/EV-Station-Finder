@@ -190,6 +190,7 @@ The project splits cleanly into an Android App and a Spring Boot Backend:
 *   **Language & Runtime**: Java 21, Spring Boot 3.3.5
 *   **Build Tool**: Maven
 *   **Database & JPA**: PostgreSQL (Hosted on Supabase), Hibernate (ORM)
+*   **Caching Layer**: Upstash Serverless Redis, Spring Data Redis
 *   **Libraries**: Lombok (Boilerplate reduction), Jackson (JSON serialization)
 *   **Client Communication**: Spring Web REST Controllers, RestTemplate
 
@@ -231,6 +232,7 @@ graph TD
         JPA[Spring Data Repositories]
         Sync[StationSyncJob]
         Seed[DataSeeder]
+        RedisConfig[RedisConfig]
         
         Ctrl <-->|Request/Response| Svc
         Svc <-->|JPA| JPA
@@ -241,10 +243,12 @@ graph TD
     
     subgraph External & Database
         DB[(Supabase PostgreSQL)]
+        Redis[(Upstash Redis Cache)]
         OCM[OpenChargeMap API]
     end
     
     Retro <-->|HTTP REST| Ctrl
+    Svc <-->|Read/Write Cache| Redis
     JPA <-->|JDBC/Hibernate| DB
     Import <-->|HTTP REST| OCM
 ```
@@ -514,7 +518,8 @@ EV-Station-Finder/
 
 ## Configuration
 
-### Backend: `application.properties`
+### Backend: `application.properties` & `application-dev.properties`
+*   `spring.data.redis.url` (default local/Upstash endpoint): The connection URL for your serverless Redis instance.
 *   `ocm.sync.enabled` (default `true`): Toggles whether the daily scheduler will run.
 *   `ocm.sync.interval-cron` (default `0 0 3 * * ?`): Cron schedule configuration (runs daily at 3:00 AM).
 *   `app.seeding.enabled` (default `false`): Toggle to trigger automatic import seeding on boot.
@@ -587,8 +592,11 @@ Run instrumental and local JUnit tests in Android Studio by right-clicking on `s
 
 *   **Map Camera Debounce**: The client-side debounce logic prevents spamming the backend database. While dragging the map, requests are deferred until the map stabilizes for 1.5 seconds.
 *   **Spatial Viewport Bounding**: Viewport fetches look up stations using database indexes on the `latitude` and `longitude` fields, avoiding expensive table-scans.
+*   **Upstash Redis Caching**: Viewport queries are cached inside an in-memory serverless Redis instance (Upstash) using coordinate-rounded keys (`%.3f` precision, representing ~110m grid squares) and a 1-hour TTL (Time To Live). This keeps database read load to a minimum even under high concurrent traffic.
+*   **Database Constraints (Deduplication)**: A unique constraint on `ocmId` and a composite unique index on `(name, latitude, longitude)` prevent duplicate station records from being created in the database during OCM sync or seeder races.
 *   **Dynamic Distances**: Heavy floating-point coordinate conversions (Haversine) are processed in parallel within Java streams using cached viewports.
 *   **Parallel Details Pre-fetching**: Tapping a pin instantly builds the 5-station carousel list from memory (using viewport markers) and immediately launches parallel coroutines (`async`/`awaitAll` in `viewModelScope`) to pre-fetch the heavyweight details (`OCMStation`) for these 5 stations. This ensures subsequent carousel scrolls/swipes are fully local and latency-free.
+*   **Map Camera Synchronization**: Swiping the carousel snaps triggers a smooth camera animation to slide the map and center the active station at a consistent zoom level of `12f` to ensure adjacent stations stay within the visible screen area.
 *   **Gesture-Based Camera Decoupling**: The app distinguishes between manual user gestures and programmatic camera centering. Auto-fetches of center-based carousel lists are only executed when the map is panned/zoomed by manual user gestures, preventing selection overrides or flickering when centering on selected pins.
 
 ---
