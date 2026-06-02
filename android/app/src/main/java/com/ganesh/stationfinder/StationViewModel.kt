@@ -83,9 +83,9 @@ class StationViewModel : ViewModel() {
         }
     }
 
-    fun fetchViewportMarkers(neLat: Double, neLng: Double, swLat: Double, swLng: Double) {
-        // Round to 3 decimal places for cache key (~111m precision)
-        val key = "${(neLat*1000).toInt()},${(neLng*1000).toInt()},${(swLat*1000).toInt()},${(swLng*1000).toInt()}"
+    fun fetchViewportMarkers(neLat: Double, neLng: Double, swLat: Double, swLng: Double, connectorType: String? = null) {
+        // Round to 3 decimal places for cache key (~111m precision) and include connectorType
+        val key = "${(neLat*1000).toInt()},${(neLng*1000).toInt()},${(swLat*1000).toInt()},${(swLng*1000).toInt()}_${connectorType ?: "ALL"}"
 
         // Skip if same viewport
         if (key == lastViewportKey) return
@@ -102,8 +102,7 @@ class StationViewModel : ViewModel() {
             delay(800) // debounce
             _markerState.value = MarkerUiState.Loading
             try {
-                val (rawMarkers, tooMany) = repository.getStationsInViewport(neLat, neLng, swLat, swLng)
-                val markers = rawMarkers.distinctBy { "${it.latitude},${it.longitude}" }
+                val (markers, tooMany) = repository.getStationsInViewport(neLat, neLng, swLat, swLng, connectorType)
                 viewportCache[key] = Pair(markers, tooMany)
                 if (viewportCache.size > 10) {
                     viewportCache.remove(viewportCache.keys.first())

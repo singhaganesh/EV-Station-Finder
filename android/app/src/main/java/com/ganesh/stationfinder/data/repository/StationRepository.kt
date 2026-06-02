@@ -9,10 +9,11 @@ class StationRepository {
     private val api = RetrofitClient.api
 
     suspend fun getStationsInViewport(
-        neLat: Double, neLng: Double, swLat: Double, swLng: Double
+        neLat: Double, neLng: Double, swLat: Double, swLng: Double,
+        connectorType: String? = null
     ): Pair<List<StationMarker>, Boolean> {
         return try {
-            val response = api.getStationsInViewport(neLat, neLng, swLat, swLng)
+            val response = api.getStationsInViewport(neLat, neLng, swLat, swLng, connectorType)
             if (response.success) {
                 val tooMany = response.message.contains("Too many", ignoreCase = true)
                 Pair(response.data, tooMany)

@@ -29,6 +29,15 @@ public interface StationRepository extends JpaRepository<Station, Long> {
         @Param("neLng") double neLng
     );
 
+    @Query("SELECT DISTINCT s FROM Station s LEFT JOIN FETCH s.chargerSlots WHERE s.latitude BETWEEN :swLat AND :neLat AND s.longitude BETWEEN :swLng AND :neLng AND EXISTS (SELECT cs FROM ChargerSlot cs WHERE cs.station = s AND cs.connectorType = :connectorType)")
+    List<Station> findStationsInViewportWithSlotsAndConnector(
+        @Param("swLat") double swLat,
+        @Param("neLat") double neLat,
+        @Param("swLng") double swLng,
+        @Param("neLng") double neLng,
+        @Param("connectorType") String connectorType
+    );
+
     // Count stations in a viewport (for "too many" detection)
     @Query("SELECT COUNT(s) FROM Station s WHERE s.latitude BETWEEN :swLat AND :neLat AND s.longitude BETWEEN :swLng AND :neLng")
     long countStationsInViewport(
@@ -37,6 +46,16 @@ public interface StationRepository extends JpaRepository<Station, Long> {
         @Param("swLng") double swLng,
         @Param("neLng") double neLng
     );
+
+    @Query("SELECT COUNT(s) FROM Station s WHERE s.latitude BETWEEN :swLat AND :neLat AND s.longitude BETWEEN :swLng AND :neLng AND EXISTS (SELECT cs FROM ChargerSlot cs WHERE cs.station = s AND cs.connectorType = :connectorType)")
+    long countStationsInViewportAndConnector(
+        @Param("swLat") double swLat,
+        @Param("neLat") double neLat,
+        @Param("swLng") double swLng,
+        @Param("neLng") double neLng,
+        @Param("connectorType") String connectorType
+    );
+
 
     // Search by name or address (case-insensitive)
     @Query("SELECT s FROM Station s WHERE LOWER(s.name) LIKE LOWER(CONCAT('%', :query, '%')) OR LOWER(s.address) LIKE LOWER(CONCAT('%', :query, '%'))")

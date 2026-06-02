@@ -52,9 +52,11 @@ public class StationController {
             @RequestParam double neLat,
             @RequestParam double neLng,
             @RequestParam double swLat,
-            @RequestParam double swLng) {
+            @RequestParam double swLng,
+            @RequestParam(required = false) String connectorType) {
         try {
-            StationService.ViewportResponse result = stationService.getStationsInViewportOptimized(neLat, neLng, swLat, swLng);
+            StationService.ViewportResponse result = stationService.getStationsInViewportOptimized(
+                    neLat, neLng, swLat, swLng, connectorType);
             String msg = result.tooMany()
                 ? "Too many stations, showing nearest 200. Zoom in for more."
                 : "Found " + result.markers().size() + " stations in viewport";

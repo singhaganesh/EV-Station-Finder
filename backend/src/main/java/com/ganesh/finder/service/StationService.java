@@ -69,13 +69,14 @@ public class StationService {
      * available slots, total slots, and connector types.
      */
     public ViewportResponse getStationsInViewportOptimized(
-            double neLat, double neLng, double swLat, double swLng) {
+            double neLat, double neLng, double swLat, double swLng, String connectorType) {
 
-        String cacheKey = String.format("viewport:%.3f:%.3f:%.3f:%.3f",
+        String cacheKey = String.format("viewport:%.3f:%.3f:%.3f:%.3f:%s",
                 Math.round(neLat * 1000.0) / 1000.0,
                 Math.round(neLng * 1000.0) / 1000.0,
                 Math.round(swLat * 1000.0) / 1000.0,
-                Math.round(swLng * 1000.0) / 1000.0);
+                Math.round(swLng * 1000.0) / 1000.0,
+                connectorType != null ? connectorType : "ALL");
 
         try {
             ViewportResponse cached = (ViewportResponse) redisTemplate.opsForValue().get(cacheKey);
@@ -90,11 +91,19 @@ public class StationService {
         double minLat = Math.min(swLat, neLat), maxLat = Math.max(swLat, neLat);
         double minLng = Math.min(swLng, neLng), maxLng = Math.max(swLng, neLng);
 
-        long totalCount = stationRepository.countStationsInViewport(minLat, maxLat, minLng, maxLng);
+        long totalCount;
+        List<Station> stations;
+
+        if (connectorType != null && !connectorType.trim().isEmpty() && !connectorType.equalsIgnoreCase("All")) {
+            totalCount = stationRepository.countStationsInViewportAndConnector(minLat, maxLat, minLng, maxLng, connectorType);
+            stations = stationRepository.findStationsInViewportWithSlotsAndConnector(minLat, maxLat, minLng, maxLng, connectorType);
+        } else {
+            totalCount = stationRepository.countStationsInViewport(minLat, maxLat, minLng, maxLng);
+            stations = stationRepository.findStationsInViewportWithSlots(minLat, maxLat, minLng, maxLng);
+        }
+
         boolean tooMany = totalCount > 200;
 
-        List<Station> stations = stationRepository.findStationsInViewportWithSlots(
-                minLat, maxLat, minLng, maxLng);
 
         double centerLat = (minLat + maxLat) / 2.0;
         double centerLng = (minLng + maxLng) / 2.0;

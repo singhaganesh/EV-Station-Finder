@@ -39,7 +39,8 @@ interface OpenChargeMapApi {
         @Query("neLat") neLat: Double,
         @Query("neLng") neLng: Double,
         @Query("swLat") swLat: Double,
-        @Query("swLng") swLng: Double
+        @Query("swLng") swLng: Double,
+        @Query("connectorType") connectorType: String? = null
     ): ApiResponse<List<StationMarker>>
 
     @GET("api/stations/{id}/detail")

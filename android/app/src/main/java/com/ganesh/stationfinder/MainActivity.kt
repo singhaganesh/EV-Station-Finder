@@ -132,10 +132,9 @@ fun MainAppScreen(viewModel: StationViewModel = viewModel()) {
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
 
-    // Sync preferred connector on startup
-    val activeConnector = remember { FavoriteManager.getPreferredConnector(context) }
+    // Sync preferred connector on startup (Now defaults to All filter)
     LaunchedEffect(Unit) {
-        viewModel.selectConnectorFilter(activeConnector)
+        viewModel.selectConnectorFilter(null)
     }
 
     Scaffold(
@@ -482,14 +481,15 @@ fun MapTabScreen(
                 }
             }
 
-            // Trigger viewport marker fetch when camera stops or projection becomes available on initial load
-            LaunchedEffect(cameraPositionState.isMoving, cameraPositionState.projection) {
+            // Trigger viewport marker fetch when camera stops, projection becomes available, or connector filter changes
+            LaunchedEffect(cameraPositionState.isMoving, cameraPositionState.projection, selectedConnector) {
                 if (!cameraPositionState.isMoving) {
                     val bounds = cameraPositionState.projection?.visibleRegion?.latLngBounds
                     if (bounds != null) {
                         viewModel.fetchViewportMarkers(
                             bounds.northeast.latitude, bounds.northeast.longitude,
-                            bounds.southwest.latitude, bounds.southwest.longitude
+                            bounds.southwest.latitude, bounds.southwest.longitude,
+                            selectedConnector
                         )
                     }
                 }
