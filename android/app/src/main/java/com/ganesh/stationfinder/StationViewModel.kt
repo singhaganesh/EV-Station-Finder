@@ -266,6 +266,13 @@ class StationViewModel : ViewModel() {
     private val _routeToName = MutableStateFlow("")
     val routeToName: StateFlow<String> = _routeToName.asStateFlow()
 
+    private val _routeError = MutableStateFlow<String?>(null)
+    val routeError: StateFlow<String?> = _routeError.asStateFlow()
+
+    fun clearRouteError() {
+        _routeError.value = null
+    }
+
     fun selectConnectorFilter(connector: String?) {
         _selectedConnectorFilter.value = connector
     }
@@ -310,6 +317,7 @@ class StationViewModel : ViewModel() {
                     _routeDurationSec.value = response.durationSec
                     _routeFromName.value = response.fromName
                     _routeToName.value = response.toName
+                    _routeError.value = null
                 } else {
                     _routeStations.value = emptyList()
                     _routePoints.value = emptyList()
@@ -317,6 +325,7 @@ class StationViewModel : ViewModel() {
                     _routeDurationSec.value = 0.0
                     _routeFromName.value = ""
                     _routeToName.value = ""
+                    _routeError.value = "Failed to compute route. Please verify addresses."
                 }
             } catch (e: Exception) {
                 android.util.Log.e("ViewModel", "Error planning route", e)
@@ -326,6 +335,7 @@ class StationViewModel : ViewModel() {
                 _routeDurationSec.value = 0.0
                 _routeFromName.value = ""
                 _routeToName.value = ""
+                _routeError.value = "Error: ${e.localizedMessage ?: "Unknown error"}"
             } finally {
                 _isRouteLoading.value = false
             }
@@ -339,6 +349,7 @@ class StationViewModel : ViewModel() {
         _routeDurationSec.value = 0.0
         _routeFromName.value = ""
         _routeToName.value = ""
+        _routeError.value = null
     }
 
     private val _uiState = MutableStateFlow<StationUiState>(StationUiState.Loading)
