@@ -536,48 +536,71 @@ public class StationService {
     }
 
     private double[] geocodeAddress(String address, String[] outName) {
+        java.net.URI uri = null;
         try {
             RestTemplate restTemplate = new RestTemplate();
             HttpHeaders headers = new HttpHeaders();
-            headers.set("User-Agent", "EV-Station-Finder/1.0 (ganesh@evstationfinder.com)");
+            headers.set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
             HttpEntity<String> entity = new HttpEntity<>(headers);
 
-            String url = UriComponentsBuilder.fromHttpUrl("https://nominatim.openstreetmap.org/search")
+            uri = UriComponentsBuilder.fromHttpUrl("https://nominatim.openstreetmap.org/search")
                     .queryParam("q", address)
                     .queryParam("format", "json")
                     .queryParam("limit", 1)
-                    .toUriString();
+                    .build()
+                    .encode()
+                    .toUri();
+
+            log.info("Nominatim Geocoding Request URI: {}", uri);
 
             ResponseEntity<List> response = restTemplate.exchange(
-                    url,
+                    uri,
                     HttpMethod.GET,
                     entity,
                     List.class
             );
 
-            if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null && !response.getBody().isEmpty()) {
-                Map<?, ?> match = (Map<?, ?>) response.getBody().get(0);
-                double lat = Double.parseDouble((String) match.get("lat"));
-                double lon = Double.parseDouble((String) match.get("lon"));
-                if (outName != null && outName.length > 0) {
-                    outName[0] = (String) match.get("display_name");
+            log.info("Nominatim response status: {}", response.getStatusCode());
+
+            if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+                List<?> body = response.getBody();
+                log.info("Nominatim response body size: {}", body.size());
+                if (!body.isEmpty()) {
+                    Map<?, ?> match = (Map<?, ?>) body.get(0);
+                    double lat = Double.parseDouble(match.get("lat").toString());
+                    double lon = Double.parseDouble(match.get("lon").toString());
+                    if (outName != null && outName.length > 0) {
+                        outName[0] = match.get("display_name").toString();
+                    }
+                    log.info("Successfully geocoded '{}' to Lat: {}, Lng: {}", address, lat, lon);
+                    return new double[]{lat, lon};
+                } else {
+                    log.warn("Nominatim returned empty results for address: '{}'", address);
                 }
-                return new double[]{lat, lon};
+            } else {
+                log.error("Nominatim request failed with status: {}", response.getStatusCode());
             }
         } catch (Exception e) {
-            log.error("Geocoding failed for address: " + address, e);
+            log.error("Geocoding exception failed for address: " + address + " (URI: " + uri + ")", e);
         }
         return null;
     }
 
     private List<double[]> fetchRouteFromOSRM(double[] start, double[] end, double[] outDistanceKm, double[] outDurationSec) {
         List<double[]> routePoints = new ArrayList<>();
+        java.net.URI uri = null;
         try {
             RestTemplate restTemplate = new RestTemplate();
-            String url = String.format(java.util.Locale.US, "https://router.project-osrm.org/route/v1/driving/%f,%f;%f,%f?overview=full&geometries=geojson",
-                    start[1], start[0], end[1], end[0]);
+            
+            uri = UriComponentsBuilder.fromHttpUrl("https://router.project-osrm.org/route/v1/driving/" + start[1] + "," + start[0] + ";" + end[1] + "," + end[0])
+                    .queryParam("overview", "full")
+                    .queryParam("geometries", "geojson")
+                    .build(true) // build without escaping coordinate separator ';'
+                    .toUri();
 
-            Map<?, ?> response = restTemplate.getForObject(url, Map.class);
+            log.info("OSRM Request URI: {}", uri);
+
+            Map<?, ?> response = restTemplate.getForObject(uri, Map.class);
             if (response != null && response.containsKey("routes")) {
                 List<?> routes = (List<?>) response.get("routes");
                 if (routes != null && !routes.isEmpty()) {
@@ -607,11 +630,12 @@ public class StationService {
                 }
             }
         } catch (Exception e) {
-            log.error("OSRM routing failed", e);
+            log.error("OSRM routing failed (URI: " + uri + ")", e);
         }
 
         // Fallback to straight line if OSRM failed
         if (routePoints.isEmpty()) {
+            log.warn("OSRM returned no route points. Falling back to straight line path.");
             routePoints.add(start);
             routePoints.add(end);
             if (outDistanceKm != null && outDistanceKm.length > 0) {
