@@ -4,6 +4,7 @@ import com.ganesh.stationfinder.data.model.ApiResponse
 import com.ganesh.stationfinder.data.model.OCMStation
 import com.ganesh.stationfinder.data.model.Review
 import com.ganesh.stationfinder.data.model.StationMarker
+import com.ganesh.stationfinder.data.model.RoutePlanResponse
 import retrofit2.http.*
 
 interface OpenChargeMapApi {
@@ -33,6 +34,13 @@ interface OpenChargeMapApi {
         @Query("connectorType") connectorType: String?,
         @Query("bufferKm") bufferKm: Double = 10.0
     ): ApiResponse<List<OCMStation>>
+
+    @GET("api/stations/route/plan")
+    suspend fun planRoute(
+        @Query("from") from: String,
+        @Query("to") to: String,
+        @Query("connectorType") connectorType: String?
+    ): ApiResponse<RoutePlanResponse>
 
     @GET("api/stations/viewport")
     suspend fun getStationsInViewport(

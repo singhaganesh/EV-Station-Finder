@@ -3,6 +3,7 @@ package com.ganesh.finder.controller;
 import com.ganesh.finder.dto.ApiResponse;
 import com.ganesh.finder.dto.StationMarker;
 import com.ganesh.finder.dto.StationWithScore;
+import com.ganesh.finder.dto.RoutePlanResponse;
 import com.ganesh.finder.service.StationService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -149,6 +150,24 @@ public class StationController {
         } catch (Exception e) {
             return ResponseEntity.internalServerError()
                     .body(ApiResponse.error("Error: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * GET /api/stations/route/plan?from=Mumbai&to=Pune&connectorType=CCS2
+     */
+    @GetMapping("/route/plan")
+    public ResponseEntity<ApiResponse<?>> planRoute(
+            @RequestParam String from,
+            @RequestParam String to,
+            @RequestParam(required = false) String connectorType) {
+        try {
+            RoutePlanResponse plan = stationService.planRoute(from, to, connectorType);
+            return ResponseEntity.ok(ApiResponse.success("Successfully planned route", plan));
+        } catch (Exception e) {
+            log.error("Failed to plan route from: " + from + " to: " + to, e);
+            return ResponseEntity.internalServerError()
+                    .body(ApiResponse.error("Failed to plan route: " + e.getMessage()));
         }
     }
 

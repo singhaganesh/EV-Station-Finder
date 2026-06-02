@@ -12,6 +12,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.data.redis.core.RedisTemplate;
+import com.ganesh.finder.dto.RoutePlanResponse;
+import org.springframework.web.client.RestTemplate;
+import org.springframework.web.util.UriComponentsBuilder;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.ResponseEntity;
+import java.util.Map;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -483,5 +491,137 @@ public class StationService {
         }
 
         return duplicateStationIds.size();
+    }
+
+    public RoutePlanResponse planRoute(String fromAddress, String toAddress, String connectorType) {
+        String[] fromName = new String[]{fromAddress};
+        String[] toName = new String[]{toAddress};
+
+        double[] start = geocodeAddress(fromAddress, fromName);
+        double[] end = geocodeAddress(toAddress, toName);
+
+        if (start == null || end == null) {
+            throw new IllegalArgumentException("Could not resolve starting or ending address coordinates.");
+        }
+
+        double[] distanceKmObj = new double[]{0.0};
+        double[] durationSecObj = new double[]{0.0};
+
+        List<double[]> routePoints = fetchRouteFromOSRM(start, end, distanceKmObj, durationSecObj);
+
+        // Downsample the path points to ~30 points to keep corridor search fast
+        List<double[]> simplifiedPoints = new ArrayList<>();
+        int step = Math.max(1, routePoints.size() / 30);
+        for (int i = 0; i < routePoints.size(); i++) {
+            if (i == 0 || i == routePoints.size() - 1 || i % step == 0) {
+                simplifiedPoints.add(routePoints.get(i));
+            }
+        }
+
+        // Format waypoints query for our corridor search
+        String waypointsStr = simplifiedPoints.stream()
+                .map(pt -> String.format(java.util.Locale.US, "%f,%f", pt[0], pt[1]))
+                .collect(Collectors.joining("|"));
+
+        List<StationWithScore> stations = getStationsAlongRoute(waypointsStr, connectorType, 10.0);
+
+        return RoutePlanResponse.builder()
+                .fromName(fromName[0])
+                .toName(toName[0])
+                .distanceKm(Math.round(distanceKmObj[0] * 10.0) / 10.0)
+                .durationSec(durationSecObj[0])
+                .routePoints(routePoints)
+                .stations(stations)
+                .build();
+    }
+
+    private double[] geocodeAddress(String address, String[] outName) {
+        try {
+            RestTemplate restTemplate = new RestTemplate();
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("User-Agent", "EV-Station-Finder/1.0 (ganesh@evstationfinder.com)");
+            HttpEntity<String> entity = new HttpEntity<>(headers);
+
+            String url = UriComponentsBuilder.fromHttpUrl("https://nominatim.openstreetmap.org/search")
+                    .queryParam("q", address)
+                    .queryParam("format", "json")
+                    .queryParam("limit", 1)
+                    .toUriString();
+
+            ResponseEntity<List> response = restTemplate.exchange(
+                    url,
+                    HttpMethod.GET,
+                    entity,
+                    List.class
+            );
+
+            if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null && !response.getBody().isEmpty()) {
+                Map<?, ?> match = (Map<?, ?>) response.getBody().get(0);
+                double lat = Double.parseDouble((String) match.get("lat"));
+                double lon = Double.parseDouble((String) match.get("lon"));
+                if (outName != null && outName.length > 0) {
+                    outName[0] = (String) match.get("display_name");
+                }
+                return new double[]{lat, lon};
+            }
+        } catch (Exception e) {
+            log.error("Geocoding failed for address: " + address, e);
+        }
+        return null;
+    }
+
+    private List<double[]> fetchRouteFromOSRM(double[] start, double[] end, double[] outDistanceKm, double[] outDurationSec) {
+        List<double[]> routePoints = new ArrayList<>();
+        try {
+            RestTemplate restTemplate = new RestTemplate();
+            String url = String.format(java.util.Locale.US, "https://router.project-osrm.org/route/v1/driving/%f,%f;%f,%f?overview=full&geometries=geojson",
+                    start[1], start[0], end[1], end[0]);
+
+            Map<?, ?> response = restTemplate.getForObject(url, Map.class);
+            if (response != null && response.containsKey("routes")) {
+                List<?> routes = (List<?>) response.get("routes");
+                if (routes != null && !routes.isEmpty()) {
+                    Map<?, ?> route = (Map<?, ?>) routes.get(0);
+                    
+                    if (outDistanceKm != null && outDistanceKm.length > 0 && route.containsKey("distance")) {
+                        outDistanceKm[0] = ((Number) route.get("distance")).doubleValue() / 1000.0;
+                    }
+                    if (outDurationSec != null && outDurationSec.length > 0 && route.containsKey("duration")) {
+                        outDurationSec[0] = ((Number) route.get("duration")).doubleValue();
+                    }
+
+                    Map<?, ?> geometry = (Map<?, ?>) route.get("geometry");
+                    if (geometry != null && "LineString".equals(geometry.get("type"))) {
+                        List<?> coords = (List<?>) geometry.get("coordinates");
+                        if (coords != null) {
+                            for (Object coordObj : coords) {
+                                List<?> point = (List<?>) coordObj;
+                                if (point.size() >= 2) {
+                                    double lon = ((Number) point.get(0)).doubleValue();
+                                    double lat = ((Number) point.get(1)).doubleValue();
+                                    routePoints.add(new double[]{lat, lon});
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.error("OSRM routing failed", e);
+        }
+
+        // Fallback to straight line if OSRM failed
+        if (routePoints.isEmpty()) {
+            routePoints.add(start);
+            routePoints.add(end);
+            if (outDistanceKm != null && outDistanceKm.length > 0) {
+                outDistanceKm[0] = calculateDistance(start[0], start[1], end[0], end[1]);
+            }
+            if (outDurationSec != null && outDurationSec.length > 0) {
+                outDurationSec[0] = (outDistanceKm[0] / 60.0) * 3600.0;
+            }
+        }
+
+        return routePoints;
     }
 }

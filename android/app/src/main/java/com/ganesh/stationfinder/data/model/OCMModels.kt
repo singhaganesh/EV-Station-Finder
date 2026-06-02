@@ -62,4 +62,14 @@ data class StationMarker(
     @SerializedName("connectorTypes") val connectorTypes: List<String>?
 )
 
+data class RoutePlanResponse(
+    @SerializedName("fromName") val fromName: String,
+    @SerializedName("toName") val toName: String,
+    @SerializedName("distanceKm") val distanceKm: Double,
+    @SerializedName("durationSec") val durationSec: Double,
+    @SerializedName("routePoints") val routePoints: List<List<Double>>,
+    @SerializedName("stations") val stations: List<OCMStation>
+)
+
+
 

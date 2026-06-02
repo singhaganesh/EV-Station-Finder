@@ -2,6 +2,7 @@ package com.ganesh.stationfinder.data.repository
 
 import com.ganesh.stationfinder.data.model.OCMStation
 import com.ganesh.stationfinder.data.model.StationMarker
+import com.ganesh.stationfinder.data.model.RoutePlanResponse
 import com.ganesh.stationfinder.data.network.RetrofitClient
 
 class StationRepository {
@@ -88,6 +89,16 @@ class StationRepository {
             if (response.success) response.data else null
         } catch (e: Exception) {
             android.util.Log.e("Repository", "Error fetching station detail", e)
+            null
+        }
+    }
+
+    suspend fun planRoute(from: String, to: String, connectorType: String?): RoutePlanResponse? {
+        return try {
+            val response = api.planRoute(from, to, connectorType)
+            if (response.success) response.data else null
+        } catch (e: Exception) {
+            android.util.Log.e("Repository", "Error planning route from $from to $to", e)
             null
         }
     }

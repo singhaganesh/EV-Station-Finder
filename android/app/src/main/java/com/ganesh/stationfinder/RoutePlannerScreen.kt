@@ -37,6 +37,11 @@ fun RoutePlannerScreen(
     val context = LocalContext.current
     val routeStations by viewModel.routeStations.collectAsState()
     val isRouteLoading by viewModel.isRouteLoading.collectAsState()
+    val routePoints by viewModel.routePoints.collectAsState()
+    val routeDistanceKm by viewModel.routeDistanceKm.collectAsState()
+    val routeDurationSec by viewModel.routeDurationSec.collectAsState()
+    val routeFromName by viewModel.routeFromName.collectAsState()
+    val routeToName by viewModel.routeToName.collectAsState()
 
     var fromText by remember { mutableStateOf("Bandra, Mumbai") }
     var toText by remember { mutableStateOf("Pune, Maharashtra") }
@@ -52,23 +57,19 @@ fun RoutePlannerScreen(
         position = CameraPosition.fromLatLngZoom(defaultCenter, 9f)
     }
 
-    // Hardcoded route coordinates for Mumbai-Pune Expressway demo
-    val routePoints = remember {
-        listOf(
-            LatLng(19.0596, 72.8295), // Bandra
-            LatLng(19.0330, 73.0297), // Navi Mumbai
-            LatLng(18.7557, 73.4091), // Lonavala
-            LatLng(18.5204, 73.8567)  // Pune
-        )
-    }
-
-    val waypointsQuery = remember(routePoints) {
-        routePoints.joinToString("|") { "${it.latitude},${it.longitude}" }
-    }
-
     // Auto-fetch on screen open
     LaunchedEffect(Unit) {
-        viewModel.fetchStationsAlongRoute(waypointsQuery, preferredConnector)
+        viewModel.planRoute(fromText, toText, preferredConnector)
+    }
+
+    // Center camera to fit bounds of routePoints when loaded
+    LaunchedEffect(routePoints) {
+        if (routePoints.isNotEmpty()) {
+            val builder = com.google.android.gms.maps.model.LatLngBounds.builder()
+            routePoints.forEach { builder.include(it) }
+            val bounds = builder.build()
+            cameraPositionState.position = CameraPosition.fromLatLngZoom(bounds.center, 9f)
+        }
     }
 
     Scaffold(
@@ -104,23 +105,25 @@ fun RoutePlannerScreen(
                 uiSettings = MapUiSettings(zoomControlsEnabled = false)
             ) {
                 // Draw route line
-                Polyline(
-                    points = routePoints,
-                    color = Color(0xFF0F766E),
-                    width = 8f
-                )
+                if (routePoints.isNotEmpty()) {
+                    Polyline(
+                        points = routePoints,
+                        color = Color(0xFF0F766E),
+                        width = 8f
+                    )
 
-                // Route pins
-                Marker(
-                    state = MarkerState(position = routePoints.first()),
-                    title = "Start: $fromText",
-                    icon = BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_AZURE)
-                )
-                Marker(
-                    state = MarkerState(position = routePoints.last()),
-                    title = "End: $toText",
-                    icon = BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_RED)
-                )
+                    // Route pins
+                    Marker(
+                        state = MarkerState(position = routePoints.first()),
+                        title = "Start: ${if (routeFromName.isNotEmpty()) routeFromName else fromText}",
+                        icon = BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_AZURE)
+                    )
+                    Marker(
+                        state = MarkerState(position = routePoints.last()),
+                        title = "End: ${if (routeToName.isNotEmpty()) routeToName else toText}",
+                        icon = BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_RED)
+                    )
+                }
 
                 // Recommended charging stops along the route
                 routeStations.forEachIndexed { index, station ->
@@ -268,8 +271,14 @@ fun RoutePlannerScreen(
                                 fontWeight = FontWeight.Bold,
                                 color = Color(0xFF1E293B)
                             )
+                            val formattedDistance = if (routeDistanceKm > 0.0) "${routeDistanceKm} km" else "145 km"
+                            val formattedDuration = if (routeDurationSec > 0.0) {
+                                val hours = (routeDurationSec / 3600).toInt()
+                                val minutes = ((routeDurationSec % 3600) / 60).toInt()
+                                if (hours > 0) "${hours}h ${minutes}m" else "${minutes}m"
+                            } else "3h 15m"
                             Text(
-                                text = "145 km • 3h 15m total route estimation",
+                                text = "$formattedDistance • $formattedDuration total route estimation",
                                 fontSize = 12.sp,
                                 color = Color.Gray
                             )
@@ -277,7 +286,7 @@ fun RoutePlannerScreen(
                         
                         Button(
                             onClick = {
-                                viewModel.fetchStationsAlongRoute(waypointsQuery, preferredConnector)
+                                viewModel.planRoute(fromText, toText, preferredConnector)
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE0F2F1), contentColor = Color(0xFF0F766E)),
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
@@ -385,11 +394,13 @@ fun RoutePlannerScreen(
                     // Navigation Action
                     Button(
                         onClick = {
-                            // Launch navigation intent to final destination (Pune)
-                            val gmmIntentUri = Uri.parse("google.navigation:q=18.5204,73.8567")
-                            val mapIntent = Intent(Intent.ACTION_VIEW, gmmIntentUri)
-                            mapIntent.setPackage("com.google.android.apps.maps")
-                            context.startActivity(mapIntent)
+                            if (routePoints.isNotEmpty()) {
+                                val dest = routePoints.last()
+                                val gmmIntentUri = Uri.parse("google.navigation:q=${dest.latitude},${dest.longitude}")
+                                val mapIntent = Intent(Intent.ACTION_VIEW, gmmIntentUri)
+                                mapIntent.setPackage("com.google.android.apps.maps")
+                                context.startActivity(mapIntent)
+                            }
                         },
                         modifier = Modifier
                             .fillMaxWidth()

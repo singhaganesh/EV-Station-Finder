@@ -251,6 +251,21 @@ class StationViewModel : ViewModel() {
     private val _isRouteLoading = MutableStateFlow(false)
     val isRouteLoading: StateFlow<Boolean> = _isRouteLoading.asStateFlow()
 
+    private val _routePoints = MutableStateFlow<List<LatLng>>(emptyList())
+    val routePoints: StateFlow<List<LatLng>> = _routePoints.asStateFlow()
+
+    private val _routeDistanceKm = MutableStateFlow(0.0)
+    val routeDistanceKm: StateFlow<Double> = _routeDistanceKm.asStateFlow()
+
+    private val _routeDurationSec = MutableStateFlow(0.0)
+    val routeDurationSec: StateFlow<Double> = _routeDurationSec.asStateFlow()
+
+    private val _routeFromName = MutableStateFlow("")
+    val routeFromName: StateFlow<String> = _routeFromName.asStateFlow()
+
+    private val _routeToName = MutableStateFlow("")
+    val routeToName: StateFlow<String> = _routeToName.asStateFlow()
+
     fun selectConnectorFilter(connector: String?) {
         _selectedConnectorFilter.value = connector
     }
@@ -283,8 +298,47 @@ class StationViewModel : ViewModel() {
         }
     }
 
+    fun planRoute(from: String, to: String, connectorType: String?) {
+        viewModelScope.launch {
+            _isRouteLoading.value = true
+            try {
+                val response = repository.planRoute(from, to, connectorType)
+                if (response != null) {
+                    _routeStations.value = response.stations
+                    _routePoints.value = response.routePoints.map { LatLng(it[0], it[1]) }
+                    _routeDistanceKm.value = response.distanceKm
+                    _routeDurationSec.value = response.durationSec
+                    _routeFromName.value = response.fromName
+                    _routeToName.value = response.toName
+                } else {
+                    _routeStations.value = emptyList()
+                    _routePoints.value = emptyList()
+                    _routeDistanceKm.value = 0.0
+                    _routeDurationSec.value = 0.0
+                    _routeFromName.value = ""
+                    _routeToName.value = ""
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("ViewModel", "Error planning route", e)
+                _routeStations.value = emptyList()
+                _routePoints.value = emptyList()
+                _routeDistanceKm.value = 0.0
+                _routeDurationSec.value = 0.0
+                _routeFromName.value = ""
+                _routeToName.value = ""
+            } finally {
+                _isRouteLoading.value = false
+            }
+        }
+    }
+
     fun clearRoute() {
         _routeStations.value = emptyList()
+        _routePoints.value = emptyList()
+        _routeDistanceKm.value = 0.0
+        _routeDurationSec.value = 0.0
+        _routeFromName.value = ""
+        _routeToName.value = ""
     }
 
     private val _uiState = MutableStateFlow<StationUiState>(StationUiState.Loading)
