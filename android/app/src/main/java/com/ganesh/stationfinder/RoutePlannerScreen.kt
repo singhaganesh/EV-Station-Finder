@@ -114,7 +114,8 @@ fun RoutePlannerScreen(
                 },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                     containerColor = Color.White
-                )
+                ),
+                windowInsets = WindowInsets(0.dp)
             )
         }
     ) { innerPadding ->
