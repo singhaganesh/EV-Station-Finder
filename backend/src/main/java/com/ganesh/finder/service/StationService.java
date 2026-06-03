@@ -335,6 +335,16 @@ public class StationService {
             return new ArrayList<>();
         }
 
+        // Compute cumulative distance along the waypoints
+        double totalDistance = 0.0;
+        double[] distAlongRoute = new double[waypoints.size()];
+        distAlongRoute[0] = 0.0;
+        for (int i = 1; i < waypoints.size(); i++) {
+            double stepDist = calculateDistance(waypoints.get(i - 1)[0], waypoints.get(i - 1)[1], waypoints.get(i)[0], waypoints.get(i)[1]);
+            totalDistance += stepDist;
+            distAlongRoute[i] = totalDistance;
+        }
+
         double minLat = Double.MAX_VALUE, maxLat = -Double.MAX_VALUE;
         double minLng = Double.MAX_VALUE, maxLng = -Double.MAX_VALUE;
         for (double[] pt : waypoints) {
@@ -352,23 +362,31 @@ public class StationService {
                 minLat - latDelta, maxLat + latDelta,
                 minLng - lngDelta, maxLng + lngDelta);
 
-        List<StationWithScore> results = new ArrayList<>();
+        List<StationWithScore> candidates = new ArrayList<>();
+        Map<Long, Double> stationProgress = new java.util.HashMap<>();
+
         List<Station> dedupedStations = stations.stream()
                 .filter(distinctByKey(s -> s.getOcmId() != null ? "ocm_" + s.getOcmId() : s.getLatitude() + "," + s.getLongitude()))
                 .collect(Collectors.toList());
 
         for (Station station : dedupedStations) {
             double minDistance = Double.MAX_VALUE;
+            int closestWpIdx = 0;
+
             for (int i = 0; i < waypoints.size() - 1; i++) {
                 double[] pA = waypoints.get(i);
                 double[] pB = waypoints.get(i + 1);
                 double dist = distanceToSegment(station.getLatitude(), station.getLongitude(), pA[0], pA[1], pB[0], pB[1]);
-                minDistance = Math.min(minDistance, dist);
+                if (dist < minDistance) {
+                    minDistance = dist;
+                    closestWpIdx = i;
+                }
             }
 
             if (waypoints.size() == 1) {
                 double[] pt = waypoints.get(0);
                 minDistance = calculateDistance(station.getLatitude(), station.getLongitude(), pt[0], pt[1]);
+                closestWpIdx = 0;
             }
 
             if (minDistance <= bufferKm) {
@@ -377,13 +395,120 @@ public class StationService {
 
                 if (connectorType == null || connectorType.trim().isEmpty() ||
                         (enriched.getConnectorTypes() != null && enriched.getConnectorTypes().stream().anyMatch(c -> c.equalsIgnoreCase(connectorType.trim())))) {
-                    results.add(enriched);
+                    candidates.add(enriched);
+                    double progress = distAlongRoute[closestWpIdx];
+                    stationProgress.put(station.getId(), progress);
                 }
             }
         }
 
-        results.sort(Comparator.comparingDouble(StationWithScore::getDistance));
-        return results;
+        // Sort candidates chronologically (from start to end of route)
+        candidates.sort(Comparator.comparingDouble(s -> stationProgress.getOrDefault(s.getId(), 0.0)));
+
+        // Smart Filtering Algorithm
+        List<StationWithScore> selected = new ArrayList<>();
+        if (totalDistance < 250.0) {
+            // Short route: select up to 2 best stations near the midpoint
+            double midMin = totalDistance * 0.25;
+            double midMax = totalDistance * 0.75;
+            List<StationWithScore> midCandidates = new ArrayList<>();
+            for (StationWithScore s : candidates) {
+                double progress = stationProgress.getOrDefault(s.getId(), 0.0);
+                if (progress >= midMin && progress <= midMax) {
+                    midCandidates.add(s);
+                }
+            }
+            // Sort by availability and rating
+            midCandidates.sort((c1, c2) -> {
+                boolean av1 = (c1.getAvailableSlots() != null && c1.getAvailableSlots() > 0);
+                boolean av2 = (c2.getAvailableSlots() != null && c2.getAvailableSlots() > 0);
+                if (av1 != av2) return av1 ? -1 : 1;
+                double rating1 = c1.getRating() != null ? c1.getRating() : 0.0;
+                double rating2 = c2.getRating() != null ? c2.getRating() : 0.0;
+                return Double.compare(rating2, rating1);
+            });
+            for (int k = 0; k < Math.min(2, midCandidates.size()); k++) {
+                selected.add(midCandidates.get(k));
+            }
+        } else {
+            // Long route: spaced-out window selection (target 200km intervals)
+            double lastProgress = 0.0;
+            double targetInterval = 200.0;
+
+            while (lastProgress + 80.0 < totalDistance) {
+                double windowMin = lastProgress + 140.0;
+                double windowMax = lastProgress + 260.0;
+
+                List<StationWithScore> windowCandidates = new ArrayList<>();
+                for (StationWithScore s : candidates) {
+                    double progress = stationProgress.getOrDefault(s.getId(), 0.0);
+                    if (progress >= windowMin && progress <= windowMax) {
+                        windowCandidates.add(s);
+                    }
+                }
+
+                if (windowCandidates.isEmpty()) {
+                    // Expand search window
+                    windowMin = lastProgress + 80.0;
+                    windowMax = lastProgress + 300.0;
+                    for (StationWithScore s : candidates) {
+                        double progress = stationProgress.getOrDefault(s.getId(), 0.0);
+                        if (progress >= windowMin && progress <= windowMax) {
+                            windowCandidates.add(s);
+                        }
+                    }
+                }
+
+                if (windowCandidates.isEmpty()) {
+                    // Find the single closest station ahead
+                    StationWithScore bestMatch = null;
+                    double bestDiff = Double.MAX_VALUE;
+                    for (StationWithScore s : candidates) {
+                        double progress = stationProgress.getOrDefault(s.getId(), 0.0);
+                        if (progress > lastProgress + 30.0 && progress < totalDistance - 30.0) {
+                            double diff = Math.abs(progress - (lastProgress + targetInterval));
+                            if (diff < bestDiff) {
+                                bestDiff = diff;
+                                bestMatch = s;
+                            }
+                        }
+                    }
+                    if (bestMatch != null) {
+                        windowCandidates.add(bestMatch);
+                    }
+                }
+
+                if (windowCandidates.isEmpty()) {
+                    break; // No candidates found ahead
+                }
+
+                // Sort by availability and rating
+                windowCandidates.sort((c1, c2) -> {
+                    boolean av1 = (c1.getAvailableSlots() != null && c1.getAvailableSlots() > 0);
+                    boolean av2 = (c2.getAvailableSlots() != null && c2.getAvailableSlots() > 0);
+                    if (av1 != av2) return av1 ? -1 : 1;
+                    double rating1 = c1.getRating() != null ? c1.getRating() : 0.0;
+                    double rating2 = c2.getRating() != null ? c2.getRating() : 0.0;
+                    return Double.compare(rating2, rating1);
+                });
+
+                StationWithScore chosen = windowCandidates.get(0);
+                selected.add(chosen);
+                lastProgress = stationProgress.getOrDefault(chosen.getId(), lastProgress + targetInterval);
+            }
+        }
+
+        // Sort final selected list chronologically
+        selected.sort(Comparator.comparingDouble(s -> stationProgress.getOrDefault(s.getId(), 0.0)));
+
+        // Fallback: if no stations were selected by the filter, return first 6 chronological candidates
+        if (selected.isEmpty() && !candidates.isEmpty()) {
+            for (int k = 0; k < Math.min(6, candidates.size()); k++) {
+                selected.add(candidates.get(k));
+            }
+        }
+
+        return selected;
     }
 
     private double distanceToSegment(double latS, double lngS, double latA, double lngA, double latB, double lngB) {
@@ -500,8 +625,12 @@ public class StationService {
         double[] start = geocodeAddress(fromAddress, fromName);
         double[] end = geocodeAddress(toAddress, toName);
 
-        if (start == null || end == null) {
-            throw new IllegalArgumentException("Could not resolve starting or ending address coordinates.");
+        if (start == null && end == null) {
+            throw new IllegalArgumentException("Could not resolve starting address '" + fromAddress + "' and ending address '" + toAddress + "'.");
+        } else if (start == null) {
+            throw new IllegalArgumentException("Could not resolve starting address coordinates for: '" + fromAddress + "'.");
+        } else if (end == null) {
+            throw new IllegalArgumentException("Could not resolve ending address coordinates for: '" + toAddress + "'.");
         }
 
         double[] distanceKmObj = new double[]{0.0};
@@ -540,7 +669,7 @@ public class StationService {
         try {
             RestTemplate restTemplate = new RestTemplate();
             HttpHeaders headers = new HttpHeaders();
-            headers.set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+            headers.set("User-Agent", "VoltFlowIndia-EV-Station-Finder/1.0 (contact@voltflowindia.com)");
             HttpEntity<String> entity = new HttpEntity<>(headers);
 
             uri = UriComponentsBuilder.fromHttpUrl("https://nominatim.openstreetmap.org/search")

@@ -206,8 +206,10 @@ fun RoutePlannerScreen(
                                 )
                                 Spacer(modifier = Modifier.width(12.dp))
                                 Column {
-                                    val startLabel = if (routeFromName.isNotEmpty()) routeFromName else fromText
-                                    val endLabel = if (routeToName.isNotEmpty()) routeToName else toText
+                                    val startLabel = (if (routeFromName.isNotEmpty()) routeFromName else fromText)
+                                        .split(",").firstOrNull()?.trim() ?: ""
+                                    val endLabel = (if (routeToName.isNotEmpty()) routeToName else toText)
+                                        .split(",").firstOrNull()?.trim() ?: ""
                                     Text(
                                         text = "$startLabel to $endLabel",
                                         fontWeight = FontWeight.Bold,
@@ -522,7 +524,10 @@ fun RoutePlannerScreen(
                                                         text = "Stop ${index + 1}: ${station.name}",
                                                         fontWeight = FontWeight.Bold,
                                                         fontSize = 14.sp,
-                                                        color = Color(0xFF1E293B)
+                                                        color = Color(0xFF1E293B),
+                                                        modifier = Modifier.weight(1f),
+                                                        maxLines = 1,
+                                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                                                     )
                                                     Box(
                                                         modifier = Modifier
