@@ -549,13 +549,17 @@ fun RoutePlannerScreen(
                                                 Row(
                                                     modifier = Modifier.fillMaxWidth(),
                                                     horizontalArrangement = Arrangement.SpaceBetween,
-                                                    verticalAlignment = Alignment.CenterVertically
+                                                    verticalAlignment = Alignment.Top
                                                 ) {
                                                     Text(
                                                         text = station.address ?: "",
                                                         fontSize = 11.sp,
-                                                        color = Color.Gray
+                                                        color = Color.Gray,
+                                                        modifier = Modifier.weight(1f),
+                                                        maxLines = 2,
+                                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                                                     )
+                                                    Spacer(modifier = Modifier.width(8.dp))
                                                     station.slots?.firstOrNull()?.let { slot ->
                                                         val formattedPower = slot.powerKw?.let { p ->
                                                             val rounded = Math.round(p * 10.0) / 10.0
@@ -565,7 +569,8 @@ fun RoutePlannerScreen(
                                                             text = "${slot.connectorType} • ${formattedPower}kW",
                                                             fontSize = 11.sp,
                                                             fontWeight = FontWeight.SemiBold,
-                                                            color = Color(0xFF0F766E)
+                                                            color = Color(0xFF0F766E),
+                                                            maxLines = 1
                                                         )
                                                     }
                                                 }
