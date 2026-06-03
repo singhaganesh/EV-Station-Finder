@@ -10,6 +10,8 @@ public interface ChargerSlotRepository extends JpaRepository<ChargerSlot, Long> 
 
     List<ChargerSlot> findByStationId(Long stationId);
 
+    List<ChargerSlot> findByStationIdIn(List<Long> stationIds);
+
     List<ChargerSlot> findByStationIdAndIsAvailableTrue(Long stationId);
 
     long countByStationIdAndIsAvailableTrue(Long stationId);

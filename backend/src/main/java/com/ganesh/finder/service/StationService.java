@@ -215,12 +215,10 @@ public class StationService {
     /**
      * Enrich a Station entity with scoring and slot data.
      */
-    private StationWithScore enrichWithScore(Station station, double userLat, double userLng) {
-        // Calculate distance using Haversine formula
-        double distance = calculateDistance(userLat, userLng, station.getLatitude(), station.getLongitude());
-
-        // Get slot data
-        List<ChargerSlot> slots = chargerSlotRepository.findByStationId(station.getId());
+    private StationWithScore enrichWithScore(Station station, double distance, List<ChargerSlot> slots) {
+        if (slots == null) {
+            slots = new ArrayList<>();
+        }
         long availableCount = slots.stream().filter(ChargerSlot::getIsAvailable).count();
 
         // Extract unique connector types
@@ -257,6 +255,12 @@ public class StationService {
                 .connectorTypes(connectorTypes)
                 .slots(slotInfos)
                 .build();
+    }
+
+    private StationWithScore enrichWithScore(Station station, double userLat, double userLng) {
+        double distance = calculateDistance(userLat, userLng, station.getLatitude(), station.getLongitude());
+        List<ChargerSlot> slots = chargerSlotRepository.findByStationId(station.getId());
+        return enrichWithScore(station, distance, slots);
     }
 
     /**
@@ -369,6 +373,9 @@ public class StationService {
                 .filter(distinctByKey(s -> s.getOcmId() != null ? "ocm_" + s.getOcmId() : s.getLatitude() + "," + s.getLongitude()))
                 .collect(Collectors.toList());
 
+        List<Station> candidateStations = new ArrayList<>();
+        Map<Long, Double> stationMinDistances = new java.util.HashMap<>();
+
         for (Station station : dedupedStations) {
             double minDistance = Double.MAX_VALUE;
             int closestWpIdx = 0;
@@ -390,15 +397,31 @@ public class StationService {
             }
 
             if (minDistance <= bufferKm) {
-                StationWithScore enriched = enrichWithScore(station, station.getLatitude(), station.getLongitude());
-                enriched.setDistance(Math.round(minDistance * 100.0) / 100.0); // round to 2 decimal places
+                candidateStations.add(station);
+                stationMinDistances.put(station.getId(), minDistance);
+                double progress = distAlongRoute[closestWpIdx];
+                stationProgress.put(station.getId(), progress);
+            }
+        }
 
-                if (connectorType == null || connectorType.trim().isEmpty() ||
-                        (enriched.getConnectorTypes() != null && enriched.getConnectorTypes().stream().anyMatch(c -> c.equalsIgnoreCase(connectorType.trim())))) {
-                    candidates.add(enriched);
-                    double progress = distAlongRoute[closestWpIdx];
-                    stationProgress.put(station.getId(), progress);
-                }
+        // Batch query all slots for candidate stations
+        List<Long> stationIds = candidateStations.stream().map(Station::getId).collect(Collectors.toList());
+        Map<Long, List<ChargerSlot>> slotsByStationId = new java.util.HashMap<>();
+        if (!stationIds.isEmpty()) {
+            List<ChargerSlot> allSlots = chargerSlotRepository.findByStationIdIn(stationIds);
+            slotsByStationId = allSlots.stream().collect(Collectors.groupingBy(slot -> slot.getStation().getId()));
+        }
+
+        // Construct enriched results in memory
+        for (Station station : candidateStations) {
+            double minDistance = stationMinDistances.get(station.getId());
+            List<ChargerSlot> slots = slotsByStationId.getOrDefault(station.getId(), new ArrayList<>());
+            StationWithScore enriched = enrichWithScore(station, 0.0, slots);
+            enriched.setDistance(Math.round(minDistance * 100.0) / 100.0);
+
+            if (connectorType == null || connectorType.trim().isEmpty() ||
+                    (enriched.getConnectorTypes() != null && enriched.getConnectorTypes().stream().anyMatch(c -> c.equalsIgnoreCase(connectorType.trim())))) {
+                candidates.add(enriched);
             }
         }
 
@@ -619,11 +642,42 @@ public class StationService {
     }
 
     public RoutePlanResponse planRoute(String fromAddress, String toAddress, String connectorType) {
+        String connKey = (connectorType != null) ? connectorType.trim().toLowerCase() : "any";
+        String cacheKey = String.format("route:%s:%s:%s", 
+                fromAddress.trim().toLowerCase(), 
+                toAddress.trim().toLowerCase(), 
+                connKey);
+        
+        try {
+            if (redisTemplate != null) {
+                RoutePlanResponse cachedResponse = (RoutePlanResponse) redisTemplate.opsForValue().get(cacheKey);
+                if (cachedResponse != null) {
+                    log.info("Route CACHE HIT for: {} -> {} (connector: {})", fromAddress, toAddress, connKey);
+                    return cachedResponse;
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to read from Redis route cache for: '{}' to '{}' - error: {}", fromAddress, toAddress, e.getMessage());
+        }
+
         String[] fromName = new String[]{fromAddress};
         String[] toName = new String[]{toAddress};
 
-        double[] start = geocodeAddress(fromAddress, fromName);
-        double[] end = geocodeAddress(toAddress, toName);
+        // Parallel geocoding
+        java.util.concurrent.CompletableFuture<double[]> startFuture = 
+                java.util.concurrent.CompletableFuture.supplyAsync(() -> geocodeAddress(fromAddress, fromName));
+        java.util.concurrent.CompletableFuture<double[]> endFuture = 
+                java.util.concurrent.CompletableFuture.supplyAsync(() -> geocodeAddress(toAddress, toName));
+
+        double[] start;
+        double[] end;
+        try {
+            start = startFuture.get();
+            end = endFuture.get();
+        } catch (Exception e) {
+            log.error("Parallel geocoding failed", e);
+            throw new RuntimeException("Geocoding failed due to internal query execution error.", e);
+        }
 
         if (start == null && end == null) {
             throw new IllegalArgumentException("Could not resolve starting address '" + fromAddress + "' and ending address '" + toAddress + "'.");
@@ -654,7 +708,7 @@ public class StationService {
 
         List<StationWithScore> stations = getStationsAlongRoute(waypointsStr, connectorType, 10.0);
 
-        return RoutePlanResponse.builder()
+        RoutePlanResponse response = RoutePlanResponse.builder()
                 .fromName(fromName[0])
                 .toName(toName[0])
                 .distanceKm(Math.round(distanceKmObj[0] * 10.0) / 10.0)
@@ -662,9 +716,41 @@ public class StationService {
                 .routePoints(routePoints)
                 .stations(stations)
                 .build();
+
+        try {
+            if (redisTemplate != null) {
+                redisTemplate.opsForValue().set(cacheKey, response, 1, java.util.concurrent.TimeUnit.HOURS);
+                log.info("Cached route plan in Redis for key: {}", cacheKey);
+            }
+        } catch (Exception e) {
+            log.warn("Failed to write to Redis route cache for key: {} - error: {}", cacheKey, e.getMessage());
+        }
+
+        return response;
     }
 
     private double[] geocodeAddress(String address, String[] outName) {
+        if (address == null || address.trim().isEmpty()) {
+            return null;
+        }
+        String cacheKey = "geocode:" + address.trim().toLowerCase();
+        try {
+            if (redisTemplate != null) {
+                Map<String, Object> cached = (Map<String, Object>) redisTemplate.opsForValue().get(cacheKey);
+                if (cached != null) {
+                    double lat = ((Number) cached.get("lat")).doubleValue();
+                    double lon = ((Number) cached.get("lon")).doubleValue();
+                    if (outName != null && outName.length > 0) {
+                        outName[0] = (String) cached.get("displayName");
+                    }
+                    log.info("Geocoding CACHE HIT for: '{}' -> Lat: {}, Lng: {}", address, lat, lon);
+                    return new double[]{lat, lon};
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to read from Redis geocode cache for: '{}' - error: {}", address, e.getMessage());
+        }
+
         java.net.URI uri = null;
         try {
             RestTemplate restTemplate = new RestTemplate();
@@ -702,7 +788,22 @@ public class StationService {
                         outName[0] = match.get("display_name").toString();
                     }
                     log.info("Successfully geocoded '{}' to Lat: {}, Lng: {}", address, lat, lon);
-                    return new double[]{lat, lon};
+                    double[] result = new double[]{lat, lon};
+                    
+                    try {
+                        if (redisTemplate != null) {
+                            Map<String, Object> cacheData = new java.util.HashMap<>();
+                            cacheData.put("lat", lat);
+                            cacheData.put("lon", lon);
+                            cacheData.put("displayName", outName[0]);
+                            redisTemplate.opsForValue().set(cacheKey, cacheData, 24, java.util.concurrent.TimeUnit.HOURS);
+                            log.info("Geocoding cached in Redis for address: '{}'", address);
+                        }
+                    } catch (Exception ex) {
+                        log.warn("Failed to write to Redis geocode cache for: '{}' - error: {}", address, ex.getMessage());
+                    }
+                    
+                    return result;
                 } else {
                     log.warn("Nominatim returned empty results for address: '{}'", address);
                 }
