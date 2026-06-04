@@ -1,8 +1,15 @@
 package com.ganesh.stationfinder.data.network
 
+import android.content.Context
+import androidx.credentials.CredentialManager
+import androidx.credentials.GetCredentialRequest
+import com.ganesh.stationfinder.BuildConfig
 import com.ganesh.stationfinder.data.model.UserProfile
+import com.google.android.libraries.identity.googleid.GetGoogleIdOption
+import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.providers.Google
+import io.github.jan.supabase.auth.providers.builtin.IDToken
 import io.github.jan.supabase.auth.user.UserInfo
 
 object AuthManager {
@@ -39,8 +46,38 @@ object AuthManager {
         )
     }
 
-    suspend fun signInWithGoogle() {
-        auth.signInWith(Google)
+    suspend fun signInWithGoogle(context: Context) {
+        val credentialManager = CredentialManager.create(context)
+        
+        val googleIdOption = GetGoogleIdOption.Builder()
+            .setFilterByAuthorizedAccounts(false)
+            .setServerClientId(BuildConfig.GOOGLE_WEB_CLIENT_ID)
+            .setAutoSelectEnabled(true)
+            .build()
+
+        val request = GetCredentialRequest.Builder()
+            .addCredentialOption(googleIdOption)
+            .build()
+
+        val result = credentialManager.getCredential(
+            context = context,
+            request = request
+        )
+
+        val credential = result.credential
+        if (credential is androidx.credentials.CustomCredential && 
+            credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
+            
+            val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(credential.data)
+            val idToken = googleIdTokenCredential.idToken
+            
+            auth.signInWith(IDToken) {
+                this.idToken = idToken
+                this.provider = Google
+            }
+        } else {
+            throw Exception("Received invalid credential type")
+        }
     }
 
     suspend fun signOut() {

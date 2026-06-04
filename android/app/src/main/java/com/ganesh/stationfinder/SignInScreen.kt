@@ -96,7 +96,7 @@ fun SignInScreen(
                             isLoading = true
                             errorMessage = null
                             try {
-                                AuthManager.signInWithGoogle()
+                                AuthManager.signInWithGoogle(context)
                                 viewModel.refreshAuthState(context)
                                 onSignedIn()
                             } catch (e: Exception) {
