@@ -11,10 +11,25 @@ object RetrofitClient {
     private val BASE_URL = BuildConfig.BASE_URL
 
     private val logging = HttpLoggingInterceptor().apply {
-        level = HttpLoggingInterceptor.Level.BODY
+        level = if (BuildConfig.DEBUG) {
+            HttpLoggingInterceptor.Level.BODY
+        } else {
+            HttpLoggingInterceptor.Level.NONE
+        }
+    }
+
+    private val authInterceptor = okhttp3.Interceptor { chain ->
+        val token = AuthManager.currentAccessToken()
+        val request = chain.request().newBuilder().apply {
+            if (token != null) {
+                header("Authorization", "Bearer $token")
+            }
+        }.build()
+        chain.proceed(request)
     }
 
     private val httpClient = OkHttpClient.Builder()
+        .addInterceptor(authInterceptor)
         .addInterceptor(logging)
         .protocols(listOf(okhttp3.Protocol.HTTP_1_1)) 
         .connectTimeout(60, TimeUnit.SECONDS)

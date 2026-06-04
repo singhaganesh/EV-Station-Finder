@@ -102,4 +102,61 @@ class StationRepository {
             null
         }
     }
+
+    suspend fun getFavorites(): List<OCMStation> {
+        return try {
+            val response = api.getFavorites()
+            if (response.success) response.data else emptyList()
+        } catch (e: Exception) {
+            android.util.Log.e("Repository", "Error getting favorites from cloud", e)
+            emptyList()
+        }
+    }
+
+    suspend fun addFavorite(stationId: Long): Boolean {
+        return try {
+            api.addFavorite(stationId).success
+        } catch (e: Exception) {
+            android.util.Log.e("Repository", "Error adding favorite to cloud", e)
+            false
+        }
+    }
+
+    suspend fun removeFavorite(stationId: Long): Boolean {
+        return try {
+            api.removeFavorite(stationId).success
+        } catch (e: Exception) {
+            android.util.Log.e("Repository", "Error removing favorite from cloud", e)
+            false
+        }
+    }
+
+    suspend fun getVehicles(): List<com.ganesh.stationfinder.data.model.UserVehicle> {
+        return try {
+            val response = api.getVehicles()
+            if (response.success) response.data else emptyList()
+        } catch (e: Exception) {
+            android.util.Log.e("Repository", "Error getting vehicles from cloud", e)
+            emptyList()
+        }
+    }
+
+    suspend fun saveVehicle(vehicle: com.ganesh.stationfinder.data.model.UserVehicle): com.ganesh.stationfinder.data.model.UserVehicle? {
+        return try {
+            val response = api.saveVehicle(vehicle)
+            if (response.success) response.data else null
+        } catch (e: Exception) {
+            android.util.Log.e("Repository", "Error saving vehicle to cloud", e)
+            null
+        }
+    }
+
+    suspend fun deleteAccount(): Boolean {
+        return try {
+            api.deleteAccount().success
+        } catch (e: Exception) {
+            android.util.Log.e("Repository", "Error deleting account", e)
+            false
+        }
+    }
 }

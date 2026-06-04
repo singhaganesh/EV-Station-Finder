@@ -93,7 +93,7 @@ fun SavedScreen(
                             station = station,
                             isFavorited = true,
                             onFavoriteToggle = {
-                                FavoriteManager.toggleFavorite(context, station.id)
+                                viewModel.toggleFavorite(context, station.id)
                                 favoriteUpdateTrigger++
                             },
                             onClick = { onStationClick(station) }

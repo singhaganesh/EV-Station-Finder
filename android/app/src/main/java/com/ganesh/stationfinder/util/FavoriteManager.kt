@@ -55,4 +55,13 @@ object FavoriteManager {
 
     fun getOnlyAvailable(context: Context): Boolean = getPrefs(context).getBoolean("only_available", false)
     fun setOnlyAvailable(context: Context, onlyAvailable: Boolean) = getPrefs(context).edit().putBoolean("only_available", onlyAvailable).apply()
+
+    fun setFavorites(context: Context, ids: Set<Long>) {
+        val stringSet = ids.map { it.toString() }.toSet()
+        getPrefs(context).edit().putStringSet(KEY_FAVORITES, stringSet).apply()
+    }
+
+    fun clear(context: Context) {
+        getPrefs(context).edit().clear().apply()
+    }
 }

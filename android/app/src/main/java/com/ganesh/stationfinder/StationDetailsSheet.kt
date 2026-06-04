@@ -39,6 +39,7 @@ fun StationDetailsSheet(
     val context = LocalContext.current
     val reviews by viewModel.reviews.collectAsState()
     val isSubmitting by viewModel.isSubmittingReview.collectAsState()
+    val authState by viewModel.authState.collectAsState()
     
     // Load reviews on sheet display
     LaunchedEffect(station.id) {
@@ -109,7 +110,8 @@ fun StationDetailsSheet(
                 var isFavorited by remember { mutableStateOf(FavoriteManager.isFavorite(context, station.id)) }
                 IconButton(
                     onClick = {
-                        isFavorited = FavoriteManager.toggleFavorite(context, station.id)
+                        viewModel.toggleFavorite(context, station.id)
+                        isFavorited = FavoriteManager.isFavorite(context, station.id)
                     }
                 ) {
                     Icon(
@@ -303,102 +305,129 @@ fun StationDetailsSheet(
             Spacer(modifier = Modifier.height(12.dp))
 
             // Submit Review Form Card
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFFF8FAFC)),
-                border = BorderStroke(1.dp, Color(0xFFE2E8F0))
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "Write a Review",
-                        fontWeight = FontWeight.Bold,
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = Color(0xFF1E293B)
-                    )
-                    
-                    Spacer(modifier = Modifier.height(12.dp))
-                    
-                    // Star Rating selector
-                    var ratingInput by remember { mutableStateOf(5) }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        for (i in 1..5) {
-                            Icon(
-                                imageVector = if (i <= ratingInput) Icons.Default.Star else Icons.Default.StarOutline,
-                                contentDescription = null,
-                                tint = Color(0xFFFFB300),
-                                modifier = Modifier
-                                    .size(32.dp)
-                                    .clickable { ratingInput = i }
+            val isLoggedIn = authState is AuthState.SignedIn
+            if (isLoggedIn) {
+                // Submit Review Form Card
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFF8FAFC)),
+                    border = BorderStroke(1.dp, Color(0xFFE2E8F0))
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            text = "Write a Review",
+                            fontWeight = FontWeight.Bold,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = Color(0xFF1E293B)
+                        )
+                        
+                        Spacer(modifier = Modifier.height(12.dp))
+                        
+                        // Star Rating selector
+                        var ratingInput by remember { mutableStateOf(5) }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            for (i in 1..5) {
+                                Icon(
+                                    imageVector = if (i <= ratingInput) Icons.Default.Star else Icons.Default.StarOutline,
+                                    contentDescription = null,
+                                    tint = Color(0xFFFFB300),
+                                    modifier = Modifier
+                                        .size(32.dp)
+                                        .clickable { ratingInput = i }
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "$ratingInput / 5 Stars",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                color = Color(0xFF0F766E)
                             )
                         }
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "$ratingInput / 5 Stars",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp,
-                            color = Color(0xFF0F766E)
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // Comment Field
+                        var commentInput by remember { mutableStateOf("") }
+                        OutlinedTextField(
+                            value = commentInput,
+                            onValueChange = { commentInput = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Share your experience...") },
+                            maxLines = 3,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Color(0xFF0F766E),
+                                unfocusedBorderColor = Color(0xFFCBD5E1)
+                            )
                         )
-                    }
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                        Spacer(modifier = Modifier.height(12.dp))
 
-                    // Reviewer Name Field
-                    var reviewerNameInput by remember { mutableStateOf(FavoriteManager.getVehicleModel(context)) }
-                    OutlinedTextField(
-                        value = reviewerNameInput,
-                        onValueChange = { reviewerNameInput = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Your Name / Vehicle Model") },
-                        singleLine = true,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = Color(0xFF0F766E),
-                            unfocusedBorderColor = Color(0xFFCBD5E1)
-                        )
-                    )
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // Comment Field
-                    var commentInput by remember { mutableStateOf("") }
-                    OutlinedTextField(
-                        value = commentInput,
-                        onValueChange = { commentInput = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Share your experience...") },
-                        maxLines = 3,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = Color(0xFF0F766E),
-                            unfocusedBorderColor = Color(0xFFCBD5E1)
-                        )
-                    )
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Button(
-                        onClick = {
-                            if (reviewerNameInput.isNotBlank()) {
+                        Button(
+                            onClick = {
+                                val reviewerName = (authState as? AuthState.SignedIn)?.profile?.displayName ?: "User"
                                 viewModel.submitReview(
                                     stationId = station.id,
-                                    reviewerName = reviewerNameInput,
+                                    reviewerName = reviewerName,
                                     rating = ratingInput.toDouble(),
                                     comment = commentInput
                                 ) {
                                     commentInput = ""
                                 }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0F766E)),
+                            enabled = !isSubmitting
+                        ) {
+                            if (isSubmitting) {
+                                CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White)
+                            } else {
+                                Text("Submit Review", fontWeight = FontWeight.Bold)
                             }
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0F766E)),
-                        enabled = !isSubmitting
+                        }
+                    }
+                }
+            } else {
+                // Prompt to sign in
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    border = BorderStroke(1.dp, Color(0xFFE2E8F0))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        if (isSubmitting) {
-                            CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White)
-                        } else {
-                            Text("Submit Review", fontWeight = FontWeight.Bold)
+                        Text(
+                            text = "Want to review this station?",
+                            fontWeight = FontWeight.Bold,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = Color(0xFF1E293B)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Sign in to share your experience with the community and rate this charging point.",
+                            color = Color.Gray,
+                            fontSize = 13.sp,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            modifier = Modifier.padding(horizontal = 8.dp)
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        OutlinedButton(
+                            onClick = {
+                                // Close details sheet and let user navigate to profile tab
+                                onDismiss()
+                            },
+                            modifier = Modifier.fillMaxWidth().height(48.dp),
+                            shape = RoundedCornerShape(24.dp),
+                            border = BorderStroke(1.dp, Color(0xFF0F766E)),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF0F766E))
+                        ) {
+                            Text(text = "Sign in from the Profile tab", fontWeight = FontWeight.Bold)
                         }
                     }
                 }

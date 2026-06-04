@@ -5,6 +5,7 @@ import com.ganesh.finder.dto.StationWithScore;
 import com.ganesh.finder.model.ChargerSlot;
 import com.ganesh.finder.model.Station;
 import com.ganesh.finder.model.Review;
+import com.ganesh.finder.model.AppUser;
 import com.ganesh.finder.repository.ChargerSlotRepository;
 import com.ganesh.finder.repository.StationRepository;
 import com.ganesh.finder.repository.ReviewRepository;
@@ -288,13 +289,18 @@ public class StationService {
      * Add a review for a station and recalculate its average rating.
      */
     @org.springframework.transaction.annotation.Transactional
-    public Review addReviewForStation(Long stationId, String reviewerName, double rating, String comment) {
+    public Review addReviewForStation(Long stationId, AppUser user, double rating, String comment) {
+        if (reviewRepository.existsByStationIdAndUserId(stationId, user.getId())) {
+            throw new IllegalStateException("You have already reviewed this station.");
+        }
+
         Station station = stationRepository.findById(stationId)
                 .orElseThrow(() -> new IllegalArgumentException("Station not found with id: " + stationId));
 
         Review review = Review.builder()
                 .station(station)
-                .reviewerName(reviewerName)
+                .user(user)
+                .reviewerName(user.getDisplayName() != null ? user.getDisplayName() : "Anonymous")
                 .rating(rating)
                 .comment(comment)
                 .build();

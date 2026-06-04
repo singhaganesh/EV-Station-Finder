@@ -57,5 +57,23 @@ interface OpenChargeMapApi {
         @Query("lat") lat: Double,
         @Query("lng") lng: Double
     ): ApiResponse<OCMStation>
+
+    @GET("api/me/favorites")
+    suspend fun getFavorites(): ApiResponse<List<OCMStation>>
+
+    @POST("api/me/favorites/{stationId}")
+    suspend fun addFavorite(@Path("stationId") stationId: Long): ApiResponse<Unit?>
+
+    @DELETE("api/me/favorites/{stationId}")
+    suspend fun removeFavorite(@Path("stationId") stationId: Long): ApiResponse<Unit?>
+
+    @GET("api/me/vehicles")
+    suspend fun getVehicles(): ApiResponse<List<com.ganesh.stationfinder.data.model.UserVehicle>>
+
+    @POST("api/me/vehicles")
+    suspend fun saveVehicle(@Body vehicle: com.ganesh.stationfinder.data.model.UserVehicle): ApiResponse<com.ganesh.stationfinder.data.model.UserVehicle>
+
+    @DELETE("api/me")
+    suspend fun deleteAccount(): ApiResponse<Unit?>
 }
 

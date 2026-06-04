@@ -23,7 +23,8 @@ import com.ganesh.stationfinder.util.FavoriteManager
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ProfileScreen(
+fun VehicleProfileScreen(
+    viewModel: StationViewModel,
     onBackClick: () -> Unit
 ) {
     val context = LocalContext.current
@@ -43,7 +44,7 @@ fun ProfileScreen(
             CenterAlignedTopAppBar(
                 title = {
                     Text(
-                        text = "My EV Profile",
+                        text = "My Vehicle",
                         fontWeight = FontWeight.ExtraBold,
                         color = Color(0xFF1E293B)
                     )
@@ -55,7 +56,8 @@ fun ProfileScreen(
                 },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                     containerColor = Color.White
-                )
+                ),
+                windowInsets = WindowInsets(0.dp)
             )
         }
     ) { innerPadding ->
@@ -290,6 +292,17 @@ fun ProfileScreen(
                     FavoriteManager.setMinPower(context, minPower)
                     FavoriteManager.setOnlyOpen(context, onlyOpen)
                     FavoriteManager.setOnlyAvailable(context, onlyAvailable)
+                    
+                    viewModel.updateVehicleCloud(
+                        context = context,
+                        model = vehicleModel,
+                        battery = batteryCapacity,
+                        range = range,
+                        connector = preferredConnector,
+                        minPower = minPower,
+                        onlyOpen = onlyOpen,
+                        onlyAvailable = onlyAvailable
+                    )
                     onBackClick()
                 },
                 modifier = Modifier

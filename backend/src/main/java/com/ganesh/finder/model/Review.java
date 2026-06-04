@@ -23,6 +23,10 @@ public class Review {
     @JoinColumn(name = "station_id", nullable = false)
     private Station station;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "user_id")
+    private AppUser user;
+
     @Column(nullable = false)
     private String reviewerName;
 

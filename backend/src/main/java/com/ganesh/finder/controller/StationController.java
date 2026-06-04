@@ -5,8 +5,13 @@ import com.ganesh.finder.dto.StationMarker;
 import com.ganesh.finder.dto.StationWithScore;
 import com.ganesh.finder.dto.RoutePlanResponse;
 import com.ganesh.finder.service.StationService;
+import com.ganesh.finder.service.AppUserService;
+import com.ganesh.finder.model.AppUser;
+import com.ganesh.finder.model.Review;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,9 +24,11 @@ public class StationController {
 
     private static final Logger log = LoggerFactory.getLogger(StationController.class);
     private final StationService stationService;
+    private final AppUserService appUserService;
 
-    public StationController(StationService stationService) {
+    public StationController(StationService stationService, AppUserService appUserService) {
         this.stationService = stationService;
+        this.appUserService = appUserService;
     }
 
     /**
@@ -140,12 +147,13 @@ public class StationController {
     @PostMapping("/{id}/reviews")
     public ResponseEntity<ApiResponse<?>> addReview(
             @PathVariable Long id,
-            @RequestBody Map<String, Object> payload) {
+            @RequestBody Map<String, Object> payload,
+            @AuthenticationPrincipal Jwt jwt) {
         try {
-            String reviewerName = (String) payload.getOrDefault("reviewerName", "Anonymous");
+            AppUser user = appUserService.getOrCreate(jwt);
             double rating = ((Number) payload.get("rating")).doubleValue();
             String comment = (String) payload.getOrDefault("comment", "");
-            var review = stationService.addReviewForStation(id, reviewerName, rating, comment);
+            var review = stationService.addReviewForStation(id, user, rating, comment);
             return ResponseEntity.ok(ApiResponse.success("Review added successfully", review));
         } catch (Exception e) {
             return ResponseEntity.internalServerError()

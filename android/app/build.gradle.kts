@@ -14,6 +14,8 @@ if (localPropertiesFile.exists()) {
 val mapsApiKey: String = localProperties.getProperty("MAPS_API_KEY")?.trim() ?: ""
 val ocmApiKey: String = localProperties.getProperty("OCM_API_KEY")?.trim() ?: ""
 val baseUrl: String = localProperties.getProperty("BASE_URL")?.trim() ?: "http://10.0.2.2:8081/"
+val supabaseUrl: String = localProperties.getProperty("SUPABASE_URL")?.trim() ?: ""
+val supabaseAnonKey: String = localProperties.getProperty("SUPABASE_ANON_KEY")?.trim() ?: ""
 
 android {
     namespace = "com.ganesh.stationfinder"
@@ -31,6 +33,8 @@ android {
         manifestPlaceholders["MAPS_API_KEY"] = mapsApiKey
         buildConfigField("String", "OCM_API_KEY", "\"${ocmApiKey}\"")
         buildConfigField("String", "BASE_URL", "\"${baseUrl}\"")
+        buildConfigField("String", "SUPABASE_URL", "\"${supabaseUrl}\"")
+        buildConfigField("String", "SUPABASE_ANON_KEY", "\"${supabaseAnonKey}\"")
     }
 
     buildTypes {
@@ -86,6 +90,11 @@ dependencies {
     
     // Material Icons Extended
     implementation("androidx.compose.material:material-icons-extended")
+    
+    // Supabase & Ktor
+    implementation("io.github.jan-tennert.supabase:postgrest-kt:3.0.1")
+    implementation("io.github.jan-tennert.supabase:auth-kt:3.0.1")
+    implementation("io.ktor:ktor-client-android:3.0.0")
     
     // Testing
     testImplementation(libs.junit)

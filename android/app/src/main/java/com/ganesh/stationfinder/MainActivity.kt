@@ -252,8 +252,25 @@ fun MainAppScreen(viewModel: StationViewModel = viewModel()) {
                     }
                 }
                 composable(NavigationItem.Profile.route) {
-                    ProfileScreen(
-                        onBackClick = { navController.navigate(NavigationItem.Map.route) { popUpTo(NavigationItem.Map.route) { inclusive = false } } }
+                    UserProfileScreen(
+                        viewModel = viewModel,
+                        onSignInClick = { navController.navigate("sign_in") },
+                        onNavigateToVehicles = { navController.navigate("vehicles") },
+                        onNavigateToSavedCount = { navController.navigate(NavigationItem.Saved.route) },
+                        onNavigateToSettings = { /* No-op or handle */ }
+                    )
+                }
+                composable("vehicles") {
+                    VehicleProfileScreen(
+                        viewModel = viewModel,
+                        onBackClick = { navController.popBackStack() }
+                    )
+                }
+                composable("sign_in") {
+                    SignInScreen(
+                        viewModel = viewModel,
+                        onSignedIn = { navController.popBackStack() },
+                        onBackClick = { navController.popBackStack() }
                     )
                 }
                 composable(NavigationItem.RoutePlan.route) {

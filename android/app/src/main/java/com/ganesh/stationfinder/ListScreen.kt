@@ -225,7 +225,7 @@ fun ListScreen(
                                 station = station,
                                 isFavorited = isFavorited,
                                 onFavoriteToggle = {
-                                    FavoriteManager.toggleFavorite(context, station.id)
+                                    viewModel.toggleFavorite(context, station.id)
                                     favoriteUpdateTrigger++
                                 },
                                 onClick = { onStationClick(station) }

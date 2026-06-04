@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.ganesh.stationfinder.data.model.OCMStation
 import com.ganesh.stationfinder.data.model.Review
 import com.ganesh.stationfinder.data.model.StationMarker
+import com.ganesh.stationfinder.data.model.UserVehicle
 import com.ganesh.stationfinder.data.repository.StationRepository
 import com.google.android.gms.maps.model.LatLng
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -30,11 +31,184 @@ sealed class MarkerUiState {
     data class Error(val message: String) : MarkerUiState()
 }
 
+sealed class AuthState {
+    object Loading : AuthState()
+    object SignedOut : AuthState()
+    data class SignedIn(val profile: com.ganesh.stationfinder.data.model.UserProfile) : AuthState()
+}
+
 class StationViewModel : ViewModel() {
     private val repository = StationRepository()
     private var searchJob: Job? = null
     var lastFetchedLocation: LatLng? = null
         private set
+
+    // --- Auth State ---
+    private val _authState = MutableStateFlow<AuthState>(AuthState.Loading)
+    val authState: StateFlow<AuthState> = _authState.asStateFlow()
+
+    fun refreshAuthState() {
+        viewModelScope.launch {
+            try {
+                val profile = com.ganesh.stationfinder.data.network.AuthManager.currentProfile()
+                _authState.value = if (profile != null) {
+                    AuthState.SignedIn(profile)
+                } else {
+                    AuthState.SignedOut
+                }
+            } catch (e: Exception) {
+                _authState.value = AuthState.SignedOut
+            }
+        }
+    }
+
+    fun refreshAuthState(context: android.content.Context) {
+        viewModelScope.launch {
+            val wasSignedIn = authState.value is AuthState.SignedIn
+            try {
+                val profile = com.ganesh.stationfinder.data.network.AuthManager.currentProfile()
+                if (profile != null) {
+                    _authState.value = AuthState.SignedIn(profile)
+                    if (!wasSignedIn) {
+                        syncFavorites(context)
+                        syncVehicle(context)
+                    }
+                } else {
+                    _authState.value = AuthState.SignedOut
+                }
+            } catch (e: Exception) {
+                _authState.value = AuthState.SignedOut
+            }
+        }
+    }
+
+    fun signOut() {
+        viewModelScope.launch {
+            try {
+                com.ganesh.stationfinder.data.network.AuthManager.signOut()
+            } catch (ignored: Exception) {}
+            _authState.value = AuthState.SignedOut
+        }
+    }
+
+    fun signOut(context: android.content.Context) {
+        viewModelScope.launch {
+            try {
+                com.ganesh.stationfinder.data.network.AuthManager.signOut()
+            } catch (ignored: Exception) {}
+            FavoriteManager.clear(context)
+            _authState.value = AuthState.SignedOut
+            _savedStations.value = emptyList()
+        }
+    }
+
+    private fun syncFavorites(context: android.content.Context) {
+        viewModelScope.launch {
+            try {
+                val localIds = FavoriteManager.getFavorites(context)
+                for (id in localIds) {
+                    repository.addFavorite(id)
+                }
+                val cloudStations = repository.getFavorites()
+                val cloudIds = cloudStations.map { it.id }.toSet()
+                FavoriteManager.setFavorites(context, cloudIds)
+                
+                val lastLoc = lastFetchedLocation
+                fetchSavedStations(context, lastLoc?.latitude ?: 0.0, lastLoc?.longitude ?: 0.0)
+            } catch (e: Exception) {
+                android.util.Log.e("ViewModel", "Error syncing favorites on sign-in", e)
+            }
+        }
+    }
+
+    private fun syncVehicle(context: android.content.Context) {
+        viewModelScope.launch {
+            try {
+                val localModel = FavoriteManager.getVehicleModel(context)
+                val localBattery = FavoriteManager.getBatteryCapacity(context)
+                val localRange = FavoriteManager.getRange(context)
+                val localConnector = FavoriteManager.getPreferredConnector(context)
+                val localMinPower = FavoriteManager.getMinPower(context)
+                val localOnlyOpen = FavoriteManager.getOnlyOpen(context)
+                val localOnlyAvailable = FavoriteManager.getOnlyAvailable(context)
+                
+                val cloudVehicles = repository.getVehicles()
+                if (cloudVehicles.isEmpty()) {
+                    val userVehicle = UserVehicle(
+                        modelName = localModel,
+                        batteryCapacity = localBattery,
+                        rangeKm = localRange,
+                        preferredConnector = localConnector,
+                        minPowerKw = localMinPower,
+                        onlyOpen = localOnlyOpen,
+                        onlyAvailable = localOnlyAvailable
+                    )
+                    repository.saveVehicle(userVehicle)
+                } else {
+                    val vehicle = cloudVehicles.first()
+                    FavoriteManager.setVehicleModel(context, vehicle.modelName)
+                    vehicle.batteryCapacity?.let { FavoriteManager.setBatteryCapacity(context, it) }
+                    vehicle.rangeKm?.let { FavoriteManager.setRange(context, it) }
+                    vehicle.preferredConnector?.let { FavoriteManager.setPreferredConnector(context, it) }
+                    vehicle.minPowerKw?.let { FavoriteManager.setMinPower(context, it) }
+                    vehicle.onlyOpen?.let { FavoriteManager.setOnlyOpen(context, it) }
+                    vehicle.onlyAvailable?.let { FavoriteManager.setOnlyAvailable(context, it) }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("ViewModel", "Error syncing vehicle on sign-in", e)
+            }
+        }
+    }
+
+    fun toggleFavorite(context: android.content.Context, stationId: Long) {
+        viewModelScope.launch {
+            val signedIn = authState.value is AuthState.SignedIn
+            if (signedIn) {
+                FavoriteManager.toggleFavorite(context, stationId)
+                val isNowFav = FavoriteManager.isFavorite(context, stationId)
+                if (isNowFav) {
+                    repository.addFavorite(stationId)
+                } else {
+                    repository.removeFavorite(stationId)
+                }
+            } else {
+                FavoriteManager.toggleFavorite(context, stationId)
+            }
+            val lastLoc = lastFetchedLocation
+            fetchSavedStations(context, lastLoc?.latitude ?: 0.0, lastLoc?.longitude ?: 0.0)
+        }
+    }
+
+    fun updateVehicleCloud(
+        context: android.content.Context,
+        model: String,
+        battery: String,
+        range: String,
+        connector: String,
+        minPower: Int,
+        onlyOpen: Boolean,
+        onlyAvailable: Boolean
+    ) {
+        viewModelScope.launch {
+            val signedIn = authState.value is AuthState.SignedIn
+            if (signedIn) {
+                try {
+                    val userVehicle = UserVehicle(
+                        modelName = model,
+                        batteryCapacity = battery,
+                        rangeKm = range,
+                        preferredConnector = connector,
+                        minPowerKw = minPower,
+                        onlyOpen = onlyOpen,
+                        onlyAvailable = onlyAvailable
+                    )
+                    repository.saveVehicle(userVehicle)
+                } catch (e: Exception) {
+                    android.util.Log.e("ViewModel", "Error updating vehicle in cloud", e)
+                }
+            }
+        }
+    }
 
     // --- Map markers (lightweight) ---
     private val _markerState = MutableStateFlow<MarkerUiState>(MarkerUiState.Idle)
@@ -65,18 +239,35 @@ class StationViewModel : ViewModel() {
     fun fetchSavedStations(context: android.content.Context, lat: Double, lng: Double) {
         viewModelScope.launch {
             _isSavedLoading.value = true
-            val ids = FavoriteManager.getFavorites(context)
-            if (ids.isEmpty()) {
-                _savedStations.value = emptyList()
-            } else {
+            val signedIn = authState.value is AuthState.SignedIn
+            if (signedIn) {
                 try {
-                    val list = ids.mapNotNull { id ->
-                        repository.getStationDetail(id, lat, lng)
+                    val cloudStations = repository.getFavorites()
+                    val list = cloudStations.map { station ->
+                        val dist = if (lat != 0.0 && lng != 0.0) {
+                            haversineKm(lat, lng, station.latitude, station.longitude)
+                        } else null
+                        station.copy(distance = dist)
                     }
                     _savedStations.value = list
                 } catch (e: Exception) {
-                    android.util.Log.e("ViewModel", "Error fetching saved stations details", e)
+                    android.util.Log.e("ViewModel", "Error fetching cloud saved stations", e)
                     _savedStations.value = emptyList()
+                }
+            } else {
+                val ids = FavoriteManager.getFavorites(context)
+                if (ids.isEmpty()) {
+                    _savedStations.value = emptyList()
+                } else {
+                    try {
+                        val list = ids.mapNotNull { id ->
+                            repository.getStationDetail(id, lat, lng)
+                        }
+                        _savedStations.value = list
+                    } catch (e: Exception) {
+                        android.util.Log.e("ViewModel", "Error fetching local saved stations details", e)
+                        _savedStations.value = emptyList()
+                    }
                 }
             }
             _isSavedLoading.value = false
