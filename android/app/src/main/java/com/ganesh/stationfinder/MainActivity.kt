@@ -305,7 +305,7 @@ fun MapTabScreen(
     val selectedConnector by viewModel.selectedConnectorFilter.collectAsState()
     val selectedStationDetail by viewModel.selectedStationDetail.collectAsState()
     
-    var userLocation by remember { mutableStateOf<LatLng?>(null) }
+    var userLocation by remember { mutableStateOf<LatLng?>(viewModel.lastFetchedLocation) }
     
     var hasLocationPermission by remember {
         mutableStateOf(
@@ -370,12 +370,21 @@ fun MapTabScreen(
     Box(modifier = Modifier.fillMaxSize()) {
         if (userLocation != null) {
             val cameraPositionState = rememberCameraPositionState {
-                position = CameraPosition.fromLatLngZoom(userLocation!!.let { LatLng(it.latitude, it.longitude) }, 10f)
+                position = viewModel.mapCameraPosition ?: CameraPosition.fromLatLngZoom(
+                    userLocation!!.let { LatLng(it.latitude, it.longitude) }, 
+                    10f
+                )
             }
 
             // Carousel Stations Flow and Active Element tracking
             val carouselStations by viewModel.carouselStations.collectAsState()
-            var selectedMarkerId by remember { mutableStateOf<Long?>(null) }
+            var selectedMarkerId by remember { mutableStateOf(viewModel.selectedMarkerId) }
+
+            // Sync selectedMarkerId with viewModel to persist across navigation transitions
+            LaunchedEffect(selectedMarkerId) {
+                viewModel.selectedMarkerId = selectedMarkerId
+            }
+
             val visibleCarousel = carouselStations.take(5)
 
             val pagerState = rememberPagerState(pageCount = { visibleCarousel.size })
@@ -444,8 +453,16 @@ fun MapTabScreen(
                 } else null
             }
 
+            var isFirstActiveStationChange by remember { mutableStateOf(true) }
+
             // Smoothly animate map camera to center on the active station at 12f zoom
             LaunchedEffect(activeStation) {
+                if (isFirstActiveStationChange) {
+                    isFirstActiveStationChange = false
+                    if (viewModel.mapCameraPosition != null) {
+                        return@LaunchedEffect
+                    }
+                }
                 activeStation?.let { station ->
                     val target = LatLng(station.latitude, station.longitude)
                     cameraPositionState.animate(
@@ -501,6 +518,9 @@ fun MapTabScreen(
             // Trigger viewport marker fetch when camera stops, projection becomes available, or connector filter changes
             LaunchedEffect(cameraPositionState.isMoving, cameraPositionState.projection, selectedConnector) {
                 if (!cameraPositionState.isMoving) {
+                    // Cache the current camera position to survive navigation transitions
+                    viewModel.mapCameraPosition = cameraPositionState.position
+
                     val bounds = cameraPositionState.projection?.visibleRegion?.latLngBounds
                     if (bounds != null) {
                         viewModel.fetchViewportMarkers(

@@ -8,6 +8,7 @@ import com.ganesh.stationfinder.data.model.StationMarker
 import com.ganesh.stationfinder.data.model.UserVehicle
 import com.ganesh.stationfinder.data.repository.StationRepository
 import com.google.android.gms.maps.model.LatLng
+import com.google.android.gms.maps.model.CameraPosition
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -42,6 +43,10 @@ class StationViewModel : ViewModel() {
     private var searchJob: Job? = null
     var lastFetchedLocation: LatLng? = null
         private set
+
+    // --- Map View State Preservation ---
+    var mapCameraPosition: CameraPosition? = null
+    var selectedMarkerId: Long? = null
 
     // --- Auth State ---
     private val _authState = MutableStateFlow<AuthState>(AuthState.Loading)
