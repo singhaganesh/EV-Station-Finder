@@ -151,6 +151,16 @@ class StationRepository {
         }
     }
 
+    suspend fun updateProfile(profile: com.ganesh.stationfinder.data.model.UserProfile): com.ganesh.stationfinder.data.model.UserProfile? {
+        return try {
+            val response = api.updateProfile(profile)
+            if (response.success) response.data else null
+        } catch (e: Exception) {
+            android.util.Log.e("Repository", "Error updating profile", e)
+            null
+        }
+    }
+
     suspend fun deleteAccount(): Boolean {
         return try {
             api.deleteAccount().success

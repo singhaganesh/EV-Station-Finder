@@ -73,6 +73,9 @@ interface OpenChargeMapApi {
     @POST("api/me/vehicles")
     suspend fun saveVehicle(@Body vehicle: com.ganesh.stationfinder.data.model.UserVehicle): ApiResponse<com.ganesh.stationfinder.data.model.UserVehicle>
 
+    @PUT("api/me/profile")
+    suspend fun updateProfile(@Body profile: com.ganesh.stationfinder.data.model.UserProfile): ApiResponse<com.ganesh.stationfinder.data.model.UserProfile>
+
     @DELETE("api/me")
     suspend fun deleteAccount(): ApiResponse<Unit?>
 }

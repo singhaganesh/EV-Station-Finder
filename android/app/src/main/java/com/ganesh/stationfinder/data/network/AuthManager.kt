@@ -13,6 +13,8 @@ import io.github.jan.supabase.auth.providers.builtin.IDToken
 import io.github.jan.supabase.auth.user.UserInfo
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 object AuthManager {
     private val auth get() = SupabaseProvider.auth
@@ -84,5 +86,16 @@ object AuthManager {
 
     suspend fun signOut() {
         auth.signOut()
+    }
+
+    suspend fun updateProfileInSupabase(newName: String, newAvatarUrl: String?) {
+        auth.updateUser {
+            data {
+                put("name", newName)
+                if (newAvatarUrl != null) {
+                    put("avatar_url", newAvatarUrl)
+                }
+            }
+        }
     }
 }

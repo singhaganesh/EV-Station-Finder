@@ -612,4 +612,67 @@ class StationViewModel : ViewModel() {
         )
         return results[0]
     }
+
+    fun updateProfile(
+        context: android.content.Context,
+        newName: String,
+        newAvatarUrl: String?,
+        onSuccess: () -> Unit,
+        onError: (String) -> Unit
+    ) {
+        viewModelScope.launch {
+            val signedIn = authState.value is AuthState.SignedIn
+            if (signedIn) {
+                val current = (authState.value as AuthState.SignedIn).profile
+                try {
+                    // 1. Update in Supabase
+                    com.ganesh.stationfinder.data.network.AuthManager.updateProfileInSupabase(newName, newAvatarUrl)
+                    
+                    // 2. Update in Spring Boot Backend Database
+                    val updated = repository.updateProfile(
+                        current.copy(displayName = newName, avatarUrl = newAvatarUrl)
+                    )
+                    
+                    if (updated != null) {
+                        // 3. Refresh local Auth State
+                        refreshAuthState(context)
+                        onSuccess()
+                    } else {
+                        onError("Failed to update profile in backend database.")
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("ViewModel", "Error updating profile", e)
+                    onError(e.message ?: "Unknown error occurred")
+                }
+            } else {
+                onError("User is not signed in.")
+            }
+        }
+    }
+
+    fun deleteAccount(
+        context: android.content.Context,
+        onSuccess: () -> Unit,
+        onError: (String) -> Unit
+    ) {
+        viewModelScope.launch {
+            val signedIn = authState.value is AuthState.SignedIn
+            if (signedIn) {
+                try {
+                    val success = repository.deleteAccount()
+                    if (success) {
+                        signOut(context)
+                        onSuccess()
+                    } else {
+                        onError("Failed to delete account from backend.")
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("ViewModel", "Error deleting account", e)
+                    onError(e.message ?: "Unknown error occurred")
+                }
+            } else {
+                onError("User is not signed in.")
+            }
+        }
+    }
 }

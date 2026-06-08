@@ -68,6 +68,7 @@ fun UserProfileScreen(
                 is AuthState.SignedOut -> SignedOutContent(onSignInClick)
                 is AuthState.SignedIn -> SignedInContent(
                     profile = state.profile,
+                    viewModel = viewModel,
                     onNavigateToVehicles = onNavigateToVehicles,
                     onNavigateToSavedCount = onNavigateToSavedCount,
                     onNavigateToSettings = onNavigateToSettings,
@@ -122,11 +123,56 @@ private fun SignedOutContent(onSignInClick: () -> Unit) {
 @Composable
 private fun SignedInContent(
     profile: UserProfile,
+    viewModel: StationViewModel,
     onNavigateToVehicles: () -> Unit,
     onNavigateToSavedCount: () -> Unit,
     onNavigateToSettings: () -> Unit,
     onSignOut: () -> Unit
 ) {
+    val context = LocalContext.current
+    var showEditProfile by remember { mutableStateOf(false) }
+    var showGoogleAccount by remember { mutableStateOf(false) }
+
+    if (showEditProfile) {
+        EditProfileDialog(
+            profile = profile,
+            onDismiss = { showEditProfile = false },
+            onSave = { name, avatar ->
+                viewModel.updateProfile(
+                    context = context,
+                    newName = name,
+                    newAvatarUrl = avatar,
+                    onSuccess = {
+                        showEditProfile = false
+                        android.widget.Toast.makeText(context, "Profile updated successfully!", android.widget.Toast.LENGTH_SHORT).show()
+                    },
+                    onError = { err ->
+                        android.widget.Toast.makeText(context, "Error: $err", android.widget.Toast.LENGTH_LONG).show()
+                    }
+                )
+            },
+            onDeleteAccount = {
+                viewModel.deleteAccount(
+                    context = context,
+                    onSuccess = {
+                        showEditProfile = false
+                        android.widget.Toast.makeText(context, "Account deleted successfully.", android.widget.Toast.LENGTH_SHORT).show()
+                    },
+                    onError = { err ->
+                        android.widget.Toast.makeText(context, "Error: $err", android.widget.Toast.LENGTH_LONG).show()
+                    }
+                )
+            }
+        )
+    }
+
+    if (showGoogleAccount) {
+        GoogleAccountDialog(
+            profile = profile,
+            onDismiss = { showGoogleAccount = false }
+        )
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -137,11 +183,17 @@ private fun SignedInContent(
         ProfileHeader(profile)
 
         ProfileSection("Account") {
-            ProfileMenuRow(Icons.Default.Person, "Edit profile", subtitle = "Name, photo")
             ProfileMenuRow(
-                Icons.Default.AccountCircle,
-                "Google account",
-                subtitle = "Connected to Google Sign-In"
+                icon = Icons.Default.Person,
+                title = "Edit profile",
+                subtitle = "Name, photo",
+                onClick = { showEditProfile = true }
+            )
+            ProfileMenuRow(
+                icon = Icons.Default.AccountCircle,
+                title = "Google account",
+                subtitle = "Connected to Google Sign-In",
+                onClick = { showGoogleAccount = true }
             )
         }
 
@@ -286,4 +338,163 @@ private fun ProfileMenuRow(
             )
         }
     }
+}
+
+@Composable
+fun EditProfileDialog(
+    profile: UserProfile,
+    onDismiss: () -> Unit,
+    onSave: (newName: String, newAvatarUrl: String?) -> Unit,
+    onDeleteAccount: () -> Unit
+) {
+    var name by remember { mutableStateOf(profile.displayName) }
+    var avatarUrl by remember { mutableStateOf(profile.avatarUrl ?: "") }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("Delete Account", fontWeight = FontWeight.Bold, color = Color(0xFFEF4444)) },
+            text = { Text("Are you absolutely sure you want to delete your account? This action is permanent and cannot be undone. All your vehicles, preferences, and favorites will be permanently deleted.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDeleteConfirm = false
+                        onDeleteAccount()
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFEF4444))
+                ) {
+                    Text("Delete Permanently", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    } else {
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            title = { Text("Edit Profile", fontWeight = FontWeight.Bold, color = Slate) },
+            text = {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    OutlinedTextField(
+                        value = name,
+                        onValueChange = { name = it },
+                        label = { Text("Display Name") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Teal,
+                            focusedLabelColor = Teal
+                        )
+                    )
+                    
+                    OutlinedTextField(
+                        value = avatarUrl,
+                        onValueChange = { avatarUrl = it },
+                        label = { Text("Avatar Image URL (Optional)") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Teal,
+                            focusedLabelColor = Teal
+                        )
+                    )
+                    
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    HorizontalDivider(color = Color(0xFFE2E8F0))
+                    
+                    TextButton(
+                        onClick = { showDeleteConfirm = true },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFEF4444))
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(Icons.Default.DeleteForever, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Delete Account", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { onSave(name, if (avatarUrl.isBlank()) null else avatarUrl) },
+                    colors = ButtonDefaults.buttonColors(containerColor = Teal),
+                    enabled = name.isNotBlank()
+                ) {
+                    Text("Save Changes")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = onDismiss) {
+                    Text("Cancel", color = Slate)
+                }
+            }
+        )
+    }
+}
+
+@Composable
+fun GoogleAccountDialog(
+    profile: UserProfile,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.AccountCircle,
+                    contentDescription = null,
+                    tint = Teal,
+                    modifier = Modifier.size(28.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Google Connection", fontWeight = FontWeight.Bold, color = Slate)
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "Your profile is linked to your Google Account.",
+                    fontWeight = FontWeight.Medium,
+                    color = Slate
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Email Address: ${profile.email}",
+                    fontSize = 14.sp,
+                    color = Color.Gray
+                )
+                Text(
+                    text = "Authentication: Secure Google OAuth2",
+                    fontSize = 14.sp,
+                    color = Color.Gray
+                )
+                Text(
+                    text = "Provider ID: google.com",
+                    fontSize = 14.sp,
+                    color = Color.Gray
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onDismiss,
+                colors = ButtonDefaults.buttonColors(containerColor = Teal)
+            ) {
+                Text("Close")
+            }
+        }
+    )
 }

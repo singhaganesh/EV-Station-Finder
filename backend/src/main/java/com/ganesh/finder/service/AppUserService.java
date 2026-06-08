@@ -73,6 +73,20 @@ public class AppUserService {
     }
 
     @Transactional
+    public AppUser updateProfile(String userId, String displayName, String avatarUrl) {
+        log.info("Updating profile for AppUser UUID: {}", userId);
+        AppUser user = appUserRepository.findById(userId)
+                .orElseThrow(() -> new IllegalArgumentException("User not found with id: " + userId));
+        if (displayName != null && !displayName.trim().isEmpty()) {
+            user.setDisplayName(displayName);
+        }
+        if (avatarUrl != null) {
+            user.setAvatarUrl(avatarUrl);
+        }
+        return appUserRepository.save(user);
+    }
+
+    @Transactional
     public void deleteUser(String userId) {
         log.info("Deleting AppUser and cascading related records for UUID: {}", userId);
         favoriteRepository.deleteByUserId(userId);

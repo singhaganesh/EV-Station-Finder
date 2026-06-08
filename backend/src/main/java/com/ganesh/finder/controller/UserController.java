@@ -155,6 +155,27 @@ public class UserController {
     }
 
     /**
+     * PUT /api/me/profile
+     */
+    @PutMapping("/profile")
+    public ResponseEntity<ApiResponse<?>> updateProfile(
+            @AuthenticationPrincipal Jwt jwt,
+            @RequestBody AppUser profileUpdate) {
+        try {
+            AppUser user = appUserService.getOrCreate(jwt);
+            AppUser updated = appUserService.updateProfile(
+                    user.getId(),
+                    profileUpdate.getDisplayName(),
+                    profileUpdate.getAvatarUrl()
+            );
+            return ResponseEntity.ok(ApiResponse.success("Successfully updated user profile", updated));
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError()
+                    .body(ApiResponse.error("Failed to update profile: " + e.getMessage()));
+        }
+    }
+
+    /**
      * DELETE /api/me
      */
     @DeleteMapping
