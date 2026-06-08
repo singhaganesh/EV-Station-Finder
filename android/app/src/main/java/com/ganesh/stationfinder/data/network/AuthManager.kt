@@ -11,6 +11,8 @@ import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.providers.Google
 import io.github.jan.supabase.auth.providers.builtin.IDToken
 import io.github.jan.supabase.auth.user.UserInfo
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 
 object AuthManager {
     private val auth get() = SupabaseProvider.auth
@@ -33,11 +35,11 @@ object AuthManager {
 
     suspend fun currentProfile(): UserProfile? {
         val user = currentUser() ?: return null
-        val displayName = user.userMetadata?.get("name")?.toString() 
-            ?: user.userMetadata?.get("full_name")?.toString() 
+        val displayName = user.userMetadata?.get("name")?.jsonPrimitive?.contentOrNull
+            ?: user.userMetadata?.get("full_name")?.jsonPrimitive?.contentOrNull
             ?: "User"
-        val avatarUrl = user.userMetadata?.get("avatar_url")?.toString() 
-            ?: user.userMetadata?.get("picture")?.toString()
+        val avatarUrl = user.userMetadata?.get("avatar_url")?.jsonPrimitive?.contentOrNull
+            ?: user.userMetadata?.get("picture")?.jsonPrimitive?.contentOrNull
         return UserProfile(
             id = user.id,
             displayName = displayName,
