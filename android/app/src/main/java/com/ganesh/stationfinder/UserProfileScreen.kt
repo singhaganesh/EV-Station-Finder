@@ -145,17 +145,19 @@ private fun SignedInContent(
         EditProfileDialog(
             profile = profile,
             onDismiss = { showEditProfile = false },
-            onSave = { name, avatar, localUri ->
+            onSave = { name, avatar, localUri, onComplete ->
                 viewModel.updateProfile(
                     context = context,
                     newName = name,
                     newAvatarUrl = avatar,
                     imageUri = localUri,
                     onSuccess = {
+                        onComplete(true)
                         showEditProfile = false
                         android.widget.Toast.makeText(context, "Profile updated successfully!", android.widget.Toast.LENGTH_SHORT).show()
                     },
                     onError = { err ->
+                        onComplete(false)
                         android.widget.Toast.makeText(context, "Error: $err", android.widget.Toast.LENGTH_LONG).show()
                     }
                 )
@@ -364,13 +366,14 @@ private fun ProfileMenuRow(
 fun EditProfileDialog(
     profile: UserProfile,
     onDismiss: () -> Unit,
-    onSave: (newName: String, newAvatarUrl: String?, localImageUri: android.net.Uri?) -> Unit,
+    onSave: (newName: String, newAvatarUrl: String?, localImageUri: android.net.Uri?, onComplete: (Boolean) -> Unit) -> Unit,
     onDeleteAccount: () -> Unit
 ) {
     var name by remember { mutableStateOf(profile.displayName) }
     var avatarUrl by remember { mutableStateOf(profile.avatarUrl ?: "") }
     var selectedImageUri by remember { mutableStateOf<android.net.Uri?>(null) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    var isLoading by remember { mutableStateOf(false) }
 
     val pickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
@@ -418,7 +421,7 @@ fun EditProfileDialog(
                             .size(80.dp)
                             .background(Color(0xFFE0F2F1), CircleShape)
                             .clip(CircleShape)
-                            .clickable {
+                            .clickable(enabled = !isLoading) {
                                 pickerLauncher.launch(
                                     PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                                 )
@@ -478,6 +481,7 @@ fun EditProfileDialog(
                         onValueChange = { name = it },
                         label = { Text("Display Name") },
                         singleLine = true,
+                        enabled = !isLoading,
                         modifier = Modifier.fillMaxWidth(),
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedBorderColor = Teal,
@@ -491,6 +495,7 @@ fun EditProfileDialog(
                     
                     TextButton(
                         onClick = { showDeleteConfirm = true },
+                        enabled = !isLoading,
                         modifier = Modifier.fillMaxWidth(),
                         colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFEF4444))
                     ) {
@@ -507,15 +512,31 @@ fun EditProfileDialog(
             },
             confirmButton = {
                 Button(
-                    onClick = { onSave(name, if (avatarUrl.isBlank()) null else avatarUrl, selectedImageUri) },
+                    onClick = {
+                        isLoading = true
+                        onSave(name, if (avatarUrl.isBlank()) null else avatarUrl, selectedImageUri) { success ->
+                            isLoading = false
+                        }
+                    },
                     colors = ButtonDefaults.buttonColors(containerColor = Teal),
-                    enabled = name.isNotBlank()
+                    enabled = name.isNotBlank() && !isLoading
                 ) {
-                    Text("Save Changes")
+                    if (isLoading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            color = Color.White,
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        Text("Save Changes")
+                    }
                 }
             },
             dismissButton = {
-                TextButton(onClick = onDismiss) {
+                TextButton(
+                    onClick = onDismiss,
+                    enabled = !isLoading
+                ) {
                     Text("Cancel", color = Slate)
                 }
             }
