@@ -98,4 +98,32 @@ object AuthManager {
             }
         }
     }
+
+    suspend fun uploadAvatar(context: Context, imageUri: android.net.Uri): String {
+        val user = currentUser() ?: throw Exception("User not signed in")
+        val bucket = SupabaseProvider.storage.from("avatars")
+        
+        // Read bytes from gallery Uri
+        val bytes = context.contentResolver.openInputStream(imageUri)?.use { it.readBytes() }
+            ?: throw Exception("Failed to read image data")
+            
+        // Generate a unique filename using timestamp to bust image caches
+        val fileName = "${user.id}/avatar_${System.currentTimeMillis()}.jpg"
+        
+        // 1. Delete any old avatars in the user's folder to clean up space
+        try {
+            val files = bucket.list(user.id)
+            if (files.isNotEmpty()) {
+                bucket.delete(files.map { "${user.id}/${it.name}" })
+            }
+        } catch (ignored: Exception) {}
+
+        // 2. Upload the new file
+        bucket.upload(fileName, bytes) {
+            upsert = true
+        }
+        
+        // 3. Retrieve and return the public URL
+        return bucket.publicUrl(fileName)
+    }
 }

@@ -23,6 +23,14 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
 import com.ganesh.stationfinder.data.model.UserProfile
 
+// Picker and Image imports
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.result.PickVisualMediaRequest
+import coil.compose.AsyncImage
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+
 private val Teal = Color(0xFF0F766E)
 private val Slate = Color(0xFF1E293B)
 private val Bg = Color(0xFFF8FAFC)
@@ -137,11 +145,12 @@ private fun SignedInContent(
         EditProfileDialog(
             profile = profile,
             onDismiss = { showEditProfile = false },
-            onSave = { name, avatar ->
+            onSave = { name, avatar, localUri ->
                 viewModel.updateProfile(
                     context = context,
                     newName = name,
                     newAvatarUrl = avatar,
+                    imageUri = localUri,
                     onSuccess = {
                         showEditProfile = false
                         android.widget.Toast.makeText(context, "Profile updated successfully!", android.widget.Toast.LENGTH_SHORT).show()
@@ -267,14 +276,25 @@ private fun ProfileHeader(profile: UserProfile) {
                     .background(Color(0xFFE0F2F1), CircleShape),
                 contentAlignment = Alignment.Center
             ) {
-                // User Initial
-                val initial = if (profile.displayName.isNotEmpty()) profile.displayName.take(1).uppercase() else "U"
-                Text(
-                    text = initial,
-                    color = Teal,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 24.sp
-                )
+                if (!profile.avatarUrl.isNullOrEmpty()) {
+                    AsyncImage(
+                        model = profile.avatarUrl,
+                        contentDescription = "Avatar",
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(CircleShape),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    // User Initial
+                    val initial = if (profile.displayName.isNotEmpty()) profile.displayName.take(1).uppercase() else "U"
+                    Text(
+                        text = initial,
+                        color = Teal,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 24.sp
+                    )
+                }
             }
             Spacer(Modifier.width(16.dp))
             Column(Modifier.weight(1f)) {
@@ -344,12 +364,21 @@ private fun ProfileMenuRow(
 fun EditProfileDialog(
     profile: UserProfile,
     onDismiss: () -> Unit,
-    onSave: (newName: String, newAvatarUrl: String?) -> Unit,
+    onSave: (newName: String, newAvatarUrl: String?, localImageUri: android.net.Uri?) -> Unit,
     onDeleteAccount: () -> Unit
 ) {
     var name by remember { mutableStateOf(profile.displayName) }
     var avatarUrl by remember { mutableStateOf(profile.avatarUrl ?: "") }
+    var selectedImageUri by remember { mutableStateOf<android.net.Uri?>(null) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
+
+    val pickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) {
+            selectedImageUri = uri
+        }
+    }
 
     if (showDeleteConfirm) {
         AlertDialog(
@@ -380,8 +409,70 @@ fun EditProfileDialog(
             text = {
                 Column(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier.fillMaxWidth()
                 ) {
+                    // Avatar picker/preview circle
+                    Box(
+                        modifier = Modifier
+                            .size(80.dp)
+                            .background(Color(0xFFE0F2F1), CircleShape)
+                            .clip(CircleShape)
+                            .clickable {
+                                pickerLauncher.launch(
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                )
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (selectedImageUri != null) {
+                            AsyncImage(
+                                model = selectedImageUri,
+                                contentDescription = "New Avatar Preview",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        } else if (!profile.avatarUrl.isNullOrEmpty()) {
+                            AsyncImage(
+                                model = profile.avatarUrl,
+                                contentDescription = "Current Avatar",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        } else {
+                            val initial = if (name.isNotEmpty()) name.take(1).uppercase() else "U"
+                            Text(
+                                text = initial,
+                                color = Teal,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 32.sp
+                            )
+                        }
+                        
+                        // Edit icon overlay
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color.Black.copy(alpha = 0.3f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CameraAlt,
+                                contentDescription = "Change photo",
+                                tint = Color.White,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                    }
+                    
+                    Text(
+                        text = "Tap circle to upload photo",
+                        fontSize = 12.sp,
+                        color = Color.Gray
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
                     OutlinedTextField(
                         value = name,
                         onValueChange = { name = it },
@@ -395,10 +486,11 @@ fun EditProfileDialog(
                     )
                     
                     OutlinedTextField(
-                        value = avatarUrl,
-                        onValueChange = { avatarUrl = it },
+                        value = if (selectedImageUri != null) "Local Image Selected" else avatarUrl,
+                        onValueChange = { if (selectedImageUri == null) avatarUrl = it },
                         label = { Text("Avatar Image URL (Optional)") },
                         singleLine = true,
+                        enabled = selectedImageUri == null,
                         modifier = Modifier.fillMaxWidth(),
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedBorderColor = Teal,
@@ -428,7 +520,7 @@ fun EditProfileDialog(
             },
             confirmButton = {
                 Button(
-                    onClick = { onSave(name, if (avatarUrl.isBlank()) null else avatarUrl) },
+                    onClick = { onSave(name, if (avatarUrl.isBlank()) null else avatarUrl, selectedImageUri) },
                     colors = ButtonDefaults.buttonColors(containerColor = Teal),
                     enabled = name.isNotBlank()
                 ) {

@@ -617,6 +617,7 @@ class StationViewModel : ViewModel() {
         context: android.content.Context,
         newName: String,
         newAvatarUrl: String?,
+        imageUri: android.net.Uri? = null,
         onSuccess: () -> Unit,
         onError: (String) -> Unit
     ) {
@@ -625,12 +626,18 @@ class StationViewModel : ViewModel() {
             if (signedIn) {
                 val current = (authState.value as AuthState.SignedIn).profile
                 try {
+                    var finalAvatarUrl = newAvatarUrl
+                    if (imageUri != null) {
+                        // Upload the local image to Supabase Storage and get the public URL
+                        finalAvatarUrl = com.ganesh.stationfinder.data.network.AuthManager.uploadAvatar(context, imageUri)
+                    }
+
                     // 1. Update in Supabase
-                    com.ganesh.stationfinder.data.network.AuthManager.updateProfileInSupabase(newName, newAvatarUrl)
+                    com.ganesh.stationfinder.data.network.AuthManager.updateProfileInSupabase(newName, finalAvatarUrl)
                     
                     // 2. Update in Spring Boot Backend Database
                     val updated = repository.updateProfile(
-                        current.copy(displayName = newName, avatarUrl = newAvatarUrl)
+                        current.copy(displayName = newName, avatarUrl = finalAvatarUrl)
                     )
                     
                     if (updated != null) {
