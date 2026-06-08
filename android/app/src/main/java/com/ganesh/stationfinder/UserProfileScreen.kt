@@ -485,19 +485,6 @@ fun EditProfileDialog(
                         )
                     )
                     
-                    OutlinedTextField(
-                        value = if (selectedImageUri != null) "Local Image Selected" else avatarUrl,
-                        onValueChange = { if (selectedImageUri == null) avatarUrl = it },
-                        label = { Text("Avatar Image URL (Optional)") },
-                        singleLine = true,
-                        enabled = selectedImageUri == null,
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = Teal,
-                            focusedLabelColor = Teal
-                        )
-                    )
-                    
                     Spacer(modifier = Modifier.height(8.dp))
                     
                     HorizontalDivider(color = Color(0xFFE2E8F0))
