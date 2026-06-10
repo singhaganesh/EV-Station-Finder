@@ -87,14 +87,14 @@ class StationViewModel : ViewModel() {
         }
     }
 
-    fun signOut() {
-        viewModelScope.launch {
-            try {
-                com.ganesh.stationfinder.data.network.AuthManager.signOut()
-            } catch (ignored: Exception) {}
-            _authState.value = AuthState.SignedOut
-        }
-    }
+    // Transient one-shot message surfaced to the user (sync failures, etc.).
+    private val _userMessage = MutableStateFlow<String?>(null)
+    val userMessage: StateFlow<String?> = _userMessage.asStateFlow()
+    fun clearUserMessage() { _userMessage.value = null }
+    private fun postMessage(message: String) { _userMessage.value = message }
+
+    // Guards against rapid double-taps firing duplicate favorite toggles per station.
+    private val favoriteInFlight = java.util.Collections.synchronizedSet(mutableSetOf<Long>())
 
     fun signOut(context: android.content.Context) {
         viewModelScope.launch {
@@ -110,18 +110,29 @@ class StationViewModel : ViewModel() {
     private fun syncFavorites(context: android.content.Context) {
         viewModelScope.launch {
             try {
+                // Upload every local favorite first (local-wins merge). Only overwrite the
+                // local set with the cloud set if ALL uploads succeeded, so a transient
+                // failure can't silently drop a bookmark.
                 val localIds = FavoriteManager.getFavorites(context)
+                var allUploaded = true
                 for (id in localIds) {
-                    repository.addFavorite(id)
+                    if (!repository.addFavorite(id)) allUploaded = false
                 }
                 val cloudStations = repository.getFavorites()
                 val cloudIds = cloudStations.map { it.id }.toSet()
-                FavoriteManager.setFavorites(context, cloudIds)
-                
+                if (allUploaded) {
+                    FavoriteManager.setFavorites(context, cloudIds)
+                } else {
+                    // Keep the union so nothing is lost; surface the partial failure.
+                    FavoriteManager.setFavorites(context, cloudIds + localIds)
+                    postMessage("Some saved stations couldn't sync. We'll retry next time.")
+                }
+
                 val lastLoc = lastFetchedLocation
                 fetchSavedStations(context, lastLoc?.latitude ?: 0.0, lastLoc?.longitude ?: 0.0)
             } catch (e: Exception) {
                 android.util.Log.e("ViewModel", "Error syncing favorites on sign-in", e)
+                postMessage("Couldn't sync your saved stations.")
             }
         }
     }
@@ -161,26 +172,34 @@ class StationViewModel : ViewModel() {
                 }
             } catch (e: Exception) {
                 android.util.Log.e("ViewModel", "Error syncing vehicle on sign-in", e)
+                postMessage("Couldn't sync your vehicle profile.")
             }
         }
     }
 
     fun toggleFavorite(context: android.content.Context, stationId: Long) {
+        // Ignore re-entrant taps for the same station while one is already in flight.
+        if (!favoriteInFlight.add(stationId)) return
         viewModelScope.launch {
-            val signedIn = authState.value is AuthState.SignedIn
-            if (signedIn) {
-                FavoriteManager.toggleFavorite(context, stationId)
-                val isNowFav = FavoriteManager.isFavorite(context, stationId)
-                if (isNowFav) {
-                    repository.addFavorite(stationId)
+            try {
+                val signedIn = authState.value is AuthState.SignedIn
+                if (signedIn) {
+                    FavoriteManager.toggleFavorite(context, stationId)
+                    val isNowFav = FavoriteManager.isFavorite(context, stationId)
+                    val ok = if (isNowFav) {
+                        repository.addFavorite(stationId)
+                    } else {
+                        repository.removeFavorite(stationId)
+                    }
+                    if (!ok) postMessage("Couldn't sync this bookmark to the cloud.")
                 } else {
-                    repository.removeFavorite(stationId)
+                    FavoriteManager.toggleFavorite(context, stationId)
                 }
-            } else {
-                FavoriteManager.toggleFavorite(context, stationId)
+                val lastLoc = lastFetchedLocation
+                fetchSavedStations(context, lastLoc?.latitude ?: 0.0, lastLoc?.longitude ?: 0.0)
+            } finally {
+                favoriteInFlight.remove(stationId)
             }
-            val lastLoc = lastFetchedLocation
-            fetchSavedStations(context, lastLoc?.latitude ?: 0.0, lastLoc?.longitude ?: 0.0)
         }
     }
 

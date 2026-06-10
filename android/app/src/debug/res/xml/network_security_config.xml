@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  DEBUG-ONLY override: permits cleartext HTTP so the app can reach a local backend
+  (emulator 10.0.2.2, localhost, or a LAN IP) during development. This file is part
+  of the debug source set only and is never included in release builds.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

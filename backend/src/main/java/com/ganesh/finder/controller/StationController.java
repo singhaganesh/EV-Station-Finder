@@ -1,28 +1,30 @@
 package com.ganesh.finder.controller;
 
+import com.ganesh.finder.dto.AddReviewRequest;
 import com.ganesh.finder.dto.ApiResponse;
-import com.ganesh.finder.dto.StationMarker;
 import com.ganesh.finder.dto.StationWithScore;
 import com.ganesh.finder.dto.RoutePlanResponse;
+import com.ganesh.finder.exception.ResourceNotFoundException;
 import com.ganesh.finder.service.StationService;
 import com.ganesh.finder.service.AppUserService;
 import com.ganesh.finder.model.AppUser;
-import com.ganesh.finder.model.Review;
+import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Thin controller: no try/catch. Failures propagate to {@code GlobalExceptionHandler}
+ * which maps them to the correct HTTP status and JSON envelope.
+ */
 @RestController
 @RequestMapping("/api/stations")
 public class StationController {
 
-    private static final Logger log = LoggerFactory.getLogger(StationController.class);
     private final StationService stationService;
     private final AppUserService appUserService;
 
@@ -31,30 +33,16 @@ public class StationController {
         this.appUserService = appUserService;
     }
 
-    /**
-     * GET /api/stations/nearby?lat=19.0760&lng=72.8777&radius=50&limit=20
-     */
     @GetMapping("/nearby")
     public ResponseEntity<ApiResponse<?>> getNearbyStations(
             @RequestParam double lat,
             @RequestParam double lng,
             @RequestParam(defaultValue = "50") double radius,
             @RequestParam(defaultValue = "20") int limit) {
-        try {
-            log.info("Received nearby search request: lat={}, lng={}, radius={}km, limit={}", lat, lng, radius, limit);
-            List<StationWithScore> stations = stationService.getNearbyStations(lat, lng, radius, limit);
-            log.info("Found {} stations near lat={}, lng={}", stations.size(), lat, lng);
-            return ResponseEntity.ok(ApiResponse.success(
-                    "Found " + stations.size() + " nearby stations", stations));
-        } catch (Exception e) {
-            return ResponseEntity.internalServerError()
-                    .body(ApiResponse.error("Error: " + e.getMessage()));
-        }
+        List<StationWithScore> stations = stationService.getNearbyStations(lat, lng, radius, limit);
+        return ResponseEntity.ok(ApiResponse.success("Found " + stations.size() + " nearby stations", stations));
     }
 
-    /**
-     * GET /api/stations/viewport?neLat=19.2&neLng=73.0&swLat=18.9&swLng=72.7
-     */
     @GetMapping("/viewport")
     public ResponseEntity<ApiResponse<?>> getStationsInViewport(
             @RequestParam double neLat,
@@ -62,153 +50,79 @@ public class StationController {
             @RequestParam double swLat,
             @RequestParam double swLng,
             @RequestParam(required = false) String connectorType) {
-        try {
-            StationService.ViewportResponse result = stationService.getStationsInViewportOptimized(
-                    neLat, neLng, swLat, swLng, connectorType);
-            String msg = result.tooMany()
+        StationService.ViewportResponse result = stationService.getStationsInViewportOptimized(
+                neLat, neLng, swLat, swLng, connectorType);
+        String msg = result.tooMany()
                 ? "Too many stations, showing nearest 200. Zoom in for more."
                 : "Found " + result.markers().size() + " stations in viewport";
-            return ResponseEntity.ok(ApiResponse.success(msg, result.markers()));
-        } catch (Exception e) {
-            return ResponseEntity.internalServerError()
-                    .body(ApiResponse.error("Error: " + e.getMessage()));
-        }
+        return ResponseEntity.ok(ApiResponse.success(msg, result.markers()));
     }
 
-    /**
-     * GET /api/stations/{id}/detail?lat=19.0760&lng=72.8777
-     */
     @GetMapping("/{id}/detail")
     public ResponseEntity<ApiResponse<?>> getStationDetail(
             @PathVariable Long id,
             @RequestParam double lat,
             @RequestParam double lng) {
-        try {
-            var detail = stationService.getStationDetail(id, lat, lng);
-            if (detail.isPresent()) {
-                return ResponseEntity.ok(ApiResponse.success("Station found", detail.get()));
-            }
-            return ResponseEntity.status(404).body(ApiResponse.error("Station not found"));
-        } catch (Exception e) {
-            return ResponseEntity.internalServerError()
-                    .body(ApiResponse.error("Error: " + e.getMessage()));
-        }
+        var detail = stationService.getStationDetail(id, lat, lng)
+                .orElseThrow(() -> new ResourceNotFoundException("Station not found"));
+        return ResponseEntity.ok(ApiResponse.success("Station found", detail));
     }
 
-    /**
-     * GET /api/stations/search?q=nexon&lat=19.0760&lng=72.8777&radius=50
-     */
     @GetMapping("/search")
     public ResponseEntity<ApiResponse<?>> searchStations(
             @RequestParam String q,
             @RequestParam double lat,
             @RequestParam double lng,
             @RequestParam(defaultValue = "50") double radius) {
-        try {
-            List<StationWithScore> results = stationService.searchStations(q, lat, lng, radius);
-            return ResponseEntity.ok(ApiResponse.success(
-                    "Found " + results.size() + " stations matching \"" + q + "\"", results));
-        } catch (Exception e) {
-            return ResponseEntity.internalServerError()
-                    .body(ApiResponse.error("Error: " + e.getMessage()));
-        }
+        List<StationWithScore> results = stationService.searchStations(q, lat, lng, radius);
+        return ResponseEntity.ok(ApiResponse.success(
+                "Found " + results.size() + " stations matching \"" + q + "\"", results));
     }
 
-    /**
-     * GET /api/stations/count
-     */
     @GetMapping("/count")
     public ResponseEntity<ApiResponse<?>> getStationCount() {
-        try {
-            long count = stationService.getStationCount();
-            return ResponseEntity.ok(ApiResponse.success("OK", Map.of("count", count)));
-        } catch (Exception e) {
-            return ResponseEntity.internalServerError()
-                    .body(ApiResponse.error("Error: " + e.getMessage()));
-        }
+        long count = stationService.getStationCount();
+        return ResponseEntity.ok(ApiResponse.success("OK", Map.of("count", count)));
     }
 
-    /**
-     * GET /api/stations/{id}/reviews
-     */
     @GetMapping("/{id}/reviews")
     public ResponseEntity<ApiResponse<?>> getReviews(@PathVariable Long id) {
-        try {
-            return ResponseEntity.ok(ApiResponse.success("Success", stationService.getReviewsForStation(id)));
-        } catch (Exception e) {
-            return ResponseEntity.internalServerError()
-                    .body(ApiResponse.error("Error: " + e.getMessage()));
-        }
+        return ResponseEntity.ok(ApiResponse.success("Success", stationService.getReviewsForStation(id)));
     }
 
-    /**
-     * POST /api/stations/{id}/reviews
-     */
     @PostMapping("/{id}/reviews")
     public ResponseEntity<ApiResponse<?>> addReview(
             @PathVariable Long id,
-            @RequestBody Map<String, Object> payload,
+            @Valid @RequestBody AddReviewRequest request,
             @AuthenticationPrincipal Jwt jwt) {
-        try {
-            AppUser user = appUserService.getOrCreate(jwt);
-            double rating = ((Number) payload.get("rating")).doubleValue();
-            String comment = (String) payload.getOrDefault("comment", "");
-            var review = stationService.addReviewForStation(id, user, rating, comment);
-            return ResponseEntity.ok(ApiResponse.success("Review added successfully", review));
-        } catch (Exception e) {
-            return ResponseEntity.internalServerError()
-                    .body(ApiResponse.error("Error: " + e.getMessage()));
-        }
+        AppUser user = appUserService.getOrCreate(jwt);
+        var review = stationService.addReviewForStation(id, user, request.getRating(), request.getComment());
+        return ResponseEntity.ok(ApiResponse.success("Review added successfully", review));
     }
 
-    /**
-     * GET /api/stations/route/plan?from=Mumbai&to=Pune&connectorType=CCS2
-     */
     @GetMapping("/route/plan")
     public ResponseEntity<ApiResponse<?>> planRoute(
             @RequestParam String from,
             @RequestParam String to,
             @RequestParam(required = false) String connectorType) {
-        try {
-            RoutePlanResponse plan = stationService.planRoute(from, to, connectorType);
-            return ResponseEntity.ok(ApiResponse.success("Successfully planned route", plan));
-        } catch (Exception e) {
-            log.error("Failed to plan route from: " + from + " to: " + to, e);
-            return ResponseEntity.internalServerError()
-                    .body(ApiResponse.error("Failed to plan route: " + e.getMessage()));
-        }
+        RoutePlanResponse plan = stationService.planRoute(from, to, connectorType);
+        return ResponseEntity.ok(ApiResponse.success("Successfully planned route", plan));
     }
 
-    /**
-     * GET /api/stations/route?waypoints=...&connectorType=CCS2&bufferKm=10.0
-     */
     @GetMapping("/route")
     public ResponseEntity<ApiResponse<?>> getStationsAlongRoute(
             @RequestParam String waypoints,
             @RequestParam(required = false) String connectorType,
             @RequestParam(defaultValue = "10.0") double bufferKm) {
-        try {
-            var stations = stationService.getStationsAlongRoute(waypoints, connectorType, bufferKm);
-            return ResponseEntity.ok(ApiResponse.success("Found " + stations.size() + " stations along route", stations));
-        } catch (Exception e) {
-            return ResponseEntity.internalServerError()
-                    .body(ApiResponse.error("Error: " + e.getMessage()));
-        }
+        var stations = stationService.getStationsAlongRoute(waypoints, connectorType, bufferKm);
+        return ResponseEntity.ok(ApiResponse.success("Found " + stations.size() + " stations along route", stations));
     }
 
-    /**
-     * POST /api/stations/cleanup-duplicates
-     */
     @PostMapping("/cleanup-duplicates")
     public ResponseEntity<ApiResponse<?>> cleanupDuplicates() {
-        try {
-            int deletedCount = stationService.removeDuplicateStations();
-            return ResponseEntity.ok(ApiResponse.success("Cleanup completed. Removed " + deletedCount + " duplicate stations.", Map.of("deletedCount", deletedCount)));
-        } catch (Exception e) {
-            log.error("Failed to run duplicate cleanup", e);
-            return ResponseEntity.internalServerError()
-                    .body(ApiResponse.error("Cleanup failed: " + e.getMessage()));
-        }
+        int deletedCount = stationService.removeDuplicateStations();
+        return ResponseEntity.ok(ApiResponse.success(
+                "Cleanup completed. Removed " + deletedCount + " duplicate stations.",
+                Map.of("deletedCount", deletedCount)));
     }
 }
-

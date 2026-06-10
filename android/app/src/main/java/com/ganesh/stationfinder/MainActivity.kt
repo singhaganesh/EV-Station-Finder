@@ -131,10 +131,19 @@ fun MainAppScreen(viewModel: StationViewModel = viewModel()) {
     var selectedStation by remember { mutableStateOf<OCMStation?>(null) }
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
+    val userMessage by viewModel.userMessage.collectAsState()
 
     // Sync preferred connector on startup (Now defaults to All filter)
     LaunchedEffect(Unit) {
         viewModel.selectConnectorFilter(null)
+    }
+
+    // Surface transient sync/error messages from the ViewModel to the user.
+    LaunchedEffect(userMessage) {
+        userMessage?.let {
+            android.widget.Toast.makeText(context, it, android.widget.Toast.LENGTH_LONG).show()
+            viewModel.clearUserMessage()
+        }
     }
 
     Scaffold(
@@ -316,17 +325,44 @@ fun MapTabScreen(
         )
     }
 
+    // Default fallback area (Mumbai) used when location is unavailable or denied,
+    // so the map never gets stuck on an indefinite "Fetching your location..." spinner.
+    val fallbackLocation = remember { LatLng(19.0760, 72.8777) }
+
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
-        hasLocationPermission = permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true
+        val granted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+            permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+        hasLocationPermission = granted
+        if (!granted) {
+            // Permission denied: still show a usable map centered on the default area.
+            android.widget.Toast.makeText(
+                context,
+                "Location permission denied. Showing a default area.",
+                android.widget.Toast.LENGTH_LONG
+            ).show()
+            userLocation = fallbackLocation
+            viewModel.fetchNearbyStations(fallbackLocation)
+        }
     }
 
     LaunchedEffect(hasLocationPermission) {
         if (hasLocationPermission) {
             LocationHelper.getCurrentLocation(context) { location ->
-                userLocation = location
-                location?.let { viewModel.fetchNearbyStations(it) }
+                if (location != null) {
+                    userLocation = location
+                    viewModel.fetchNearbyStations(location)
+                } else {
+                    // Could not obtain a fix -- fall back so the UI is still usable.
+                    android.widget.Toast.makeText(
+                        context,
+                        "Couldn't get your location. Showing a default area.",
+                        android.widget.Toast.LENGTH_LONG
+                    ).show()
+                    userLocation = fallbackLocation
+                    viewModel.fetchNearbyStations(fallbackLocation)
+                }
             }
         } else {
             launcher.launch(

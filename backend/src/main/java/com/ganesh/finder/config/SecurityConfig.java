@@ -28,7 +28,7 @@ import java.util.List;
 @EnableWebSecurity
 public class SecurityConfig {
 
-    @Value("${app.admin.emails:singhaganesh@gmail.com}")
+    @Value("${app.admin.emails:}")
     private String adminEmailsStr;
 
     @Value("${spring.security.oauth2.resourceserver.jwt.jwk-set-uri}")
@@ -95,10 +95,15 @@ public class SecurityConfig {
         JwtAuthenticationConverter converter = new JwtAuthenticationConverter();
         converter.setJwtGrantedAuthoritiesConverter(jwt -> {
             String email = jwt.getClaimAsString("email");
-            List<String> adminEmails = adminEmailsStr != null 
-                ? Arrays.asList(adminEmailsStr.split(",")) 
+            // Normalize BOTH sides (trim + lowercase) so config whitespace/casing can't
+            // silently grant or deny admin.
+            List<String> adminEmails = (adminEmailsStr != null && !adminEmailsStr.isBlank())
+                ? Arrays.stream(adminEmailsStr.split(","))
+                        .map(s -> s.trim().toLowerCase())
+                        .filter(s -> !s.isEmpty())
+                        .collect(java.util.stream.Collectors.toList())
                 : Collections.emptyList();
-            
+
             List<org.springframework.security.core.GrantedAuthority> authorities = new java.util.ArrayList<>();
             if (email != null && adminEmails.contains(email.trim().toLowerCase())) {
                 authorities.add(new SimpleGrantedAuthority("ROLE_ADMIN"));

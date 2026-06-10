@@ -9,22 +9,20 @@ class StationRepository {
     
     private val api = RetrofitClient.api
 
+    /**
+     * Throws on network/transport failure so the ViewModel can distinguish a real
+     * error (show a snackbar) from a genuinely empty viewport (no markers, no error).
+     */
     suspend fun getStationsInViewport(
         neLat: Double, neLng: Double, swLat: Double, swLng: Double,
         connectorType: String? = null
     ): Pair<List<StationMarker>, Boolean> {
-        return try {
-            val response = api.getStationsInViewport(neLat, neLng, swLat, swLng, connectorType)
-            if (response.success) {
-                val tooMany = response.message.contains("Too many", ignoreCase = true)
-                Pair(response.data, tooMany)
-            } else {
-                Pair(emptyList(), false)
-            }
-        } catch (e: Exception) {
-            android.util.Log.e("Repository", "Error fetching viewport markers", e)
-            Pair(emptyList(), false)
+        val response = api.getStationsInViewport(neLat, neLng, swLat, swLng, connectorType)
+        if (!response.success) {
+            throw IllegalStateException(response.message.ifBlank { "Failed to load stations" })
         }
+        val tooMany = response.message.contains("Too many", ignoreCase = true)
+        return Pair(response.data, tooMany)
     }
 
     suspend fun getNearbyStations(lat: Double, lng: Double, distance: Double = 20.0): List<OCMStation> {

@@ -11,6 +11,7 @@
 
 # Local properties / secrets
 **/local.properties
+**/application-local.properties
 .env
 .env.*
 

@@ -26,13 +26,8 @@ public class ImportController {
             @RequestParam double lat,
             @RequestParam double lng,
             @RequestParam(defaultValue = "50") int radius) {
-        try {
-            int count = stationImportService.importFromOCM(lat, lng, radius);
-            return ResponseEntity.ok(ApiResponse.success(
-                    "Imported " + count + " stations", Map.of("imported", count)));
-        } catch (Exception e) {
-            return ResponseEntity.internalServerError()
-                    .body(ApiResponse.error("Import failed: " + e.getMessage()));
-        }
+        int count = stationImportService.importFromOCM(lat, lng, radius);
+        return ResponseEntity.ok(ApiResponse.success(
+                "Imported " + count + " stations", Map.of("imported", count)));
     }
 }

@@ -452,12 +452,14 @@ fun RoutePlannerScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column {
-                                val formattedDistance = if (routeDistanceKm > 0.0) "${routeDistanceKm} km" else "145 km"
+                                // Never show a fabricated distance/duration: if the value is
+                                // unknown (routing failed), show a dash instead of a fake number.
+                                val formattedDistance = if (routeDistanceKm > 0.0) "${routeDistanceKm} km" else "— km"
                                 val formattedDuration = if (routeDurationSec > 0.0) {
                                     val hours = (routeDurationSec / 3600).toInt()
                                     val minutes = ((routeDurationSec % 3600) / 60).toInt()
                                     if (hours > 0) "${hours}h ${minutes}m" else "${minutes}m"
-                                } else "3h 15m"
+                                } else "—"
                                 Text(
                                     text = "$formattedDistance • $formattedDuration",
                                     style = MaterialTheme.typography.titleMedium,

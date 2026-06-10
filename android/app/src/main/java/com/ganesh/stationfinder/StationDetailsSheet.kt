@@ -191,7 +191,16 @@ fun StationDetailsSheet(
                 fontWeight = FontWeight.Bold,
                 color = Color(0xFF1E293B)
             )
-            
+
+            // Availability comes from the last data import, not a live feed -- label it
+            // so users aren't misled into thinking a slot is guaranteed free right now.
+            Text(
+                text = station.lastSyncedDate?.let { "Availability as of $it • not real-time" }
+                    ?: "Availability is indicative • not real-time",
+                fontSize = 11.sp,
+                color = Color.Gray
+            )
+
             Spacer(modifier = Modifier.height(8.dp))
 
             if (!station.slots.isNullOrEmpty()) {

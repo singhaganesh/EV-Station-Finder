@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Production / release default: cleartext (plain HTTP) is NOT permitted, so the
+  app will only talk to the backend over HTTPS. The debug build overrides this
+  with src/debug/res/xml/network_security_config.xml to allow cleartext to local
+  dev servers only.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+</network-security-config>

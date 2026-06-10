@@ -21,6 +21,10 @@ public class StationWithScore {
     private Double rating;
     private Boolean isOpen;
     private String meta;
+    // ISO timestamp of the last OCM sync, so the client can label availability as
+    // "data as of X" rather than implying it is real-time. Exposed as a String to
+    // keep the Redis JSON serializer free of Java-time dependencies.
+    private String lastSynced;
 
     // Computed fields
     private Double distance;

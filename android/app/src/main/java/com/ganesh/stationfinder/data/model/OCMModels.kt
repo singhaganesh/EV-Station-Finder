@@ -1,6 +1,7 @@
 package com.ganesh.stationfinder.data.model
 
 import com.google.gson.annotations.SerializedName
+import org.json.JSONObject
 
 data class ApiResponse<T>(
     @SerializedName("success") val success: Boolean,
@@ -23,14 +24,25 @@ data class OCMStation(
     @SerializedName("availableSlots") val availableSlots: Int?,
     @SerializedName("totalSlots") val totalSlots: Int?,
     @SerializedName("connectorTypes") val connectorTypes: List<String>?,
-    @SerializedName("slots") val slots: List<SlotInfo>?
+    @SerializedName("slots") val slots: List<SlotInfo>?,
+    // ISO timestamp of the last OCM sync. Availability shown in the UI reflects this
+    // import, not a live feed, so it should be labelled "as of <lastSynced>".
+    @SerializedName("lastSynced") val lastSynced: String? = null
 ) {
     val operatorName: String
         get() {
             if (meta.isNullOrEmpty()) return "Independent Operator"
-            val match = Regex("\"ocm_operator\":\"([^\"]+)\"").find(meta)
-            return match?.groupValues?.get(1) ?: "Independent Operator"
+            // meta is JSON; parse it properly instead of a fragile regex.
+            return try {
+                JSONObject(meta).optString("ocm_operator").ifBlank { "Independent Operator" }
+            } catch (e: Exception) {
+                "Independent Operator"
+            }
         }
+
+    /** Human-friendly "data freshness" date (yyyy-MM-dd) derived from lastSynced, or null. */
+    val lastSyncedDate: String?
+        get() = lastSynced?.take(10)?.ifBlank { null }
 }
 
 data class SlotInfo(

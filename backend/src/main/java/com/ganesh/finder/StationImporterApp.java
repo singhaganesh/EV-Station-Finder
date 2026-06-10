@@ -5,6 +5,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.Banner;
 import org.springframework.boot.SpringApplication;
+import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.ConfigurableApplicationContext;
 
@@ -20,6 +21,9 @@ public class StationImporterApp {
 
         SpringApplication app = new SpringApplication(StationImporterApp.class);
         app.setBannerMode(Banner.Mode.OFF);
+        // Standalone batch importer: never start an embedded web server (avoids port
+        // 8081 conflict with the main FinderApplication).
+        app.setWebApplicationType(WebApplicationType.NONE);
 
         ConfigurableApplicationContext context = app.run(args);
 

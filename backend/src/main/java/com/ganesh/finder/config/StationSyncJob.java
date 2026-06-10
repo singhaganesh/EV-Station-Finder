@@ -7,6 +7,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 
 @Component
 @ConditionalOnProperty(name = "ocm.sync.enabled", havingValue = "true", matchIfMissing = false)
@@ -28,6 +29,7 @@ public class StationSyncJob {
      * Syncs stations around 5 major Indian cities.
      */
     @Scheduled(cron = "${ocm.sync.interval-cron:0 0 3 * * ?}")
+    @SchedulerLock(name = "ocmDailySync", lockAtMostFor = "PT2H", lockAtLeastFor = "PT5M")
     public void syncStations() {
         log.info("Starting scheduled OCM station sync...");
 

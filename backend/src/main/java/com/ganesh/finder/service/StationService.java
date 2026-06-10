@@ -37,15 +37,18 @@ public class StationService {
     private final ChargerSlotRepository chargerSlotRepository;
     private final ReviewRepository reviewRepository;
     private final RedisTemplate<String, Object> redisTemplate;
+    private final RestTemplate restTemplate;
 
     public StationService(StationRepository stationRepository,
                           ChargerSlotRepository chargerSlotRepository,
                           ReviewRepository reviewRepository,
-                          RedisTemplate<String, Object> redisTemplate) {
+                          RedisTemplate<String, Object> redisTemplate,
+                          RestTemplate externalRestTemplate) {
         this.stationRepository = stationRepository;
         this.chargerSlotRepository = chargerSlotRepository;
         this.reviewRepository = reviewRepository;
         this.redisTemplate = redisTemplate;
+        this.restTemplate = externalRestTemplate;
     }
 
     public record ViewportResponse(List<StationMarker> markers, boolean tooMany) {}
@@ -175,12 +178,36 @@ public class StationService {
                 lat - latDelta, lat + latDelta,
                 lng - lngDelta, lng + lngDelta);
 
-        return stations.stream()
+        // Distance-filter, sort and limit FIRST, then batch-load slots only for the
+        // surviving stations (avoids the per-station N+1 slot query).
+        List<Station> selected = stations.stream()
                 .filter(distinctByKey(s -> s.getOcmId() != null ? "ocm_" + s.getOcmId() : s.getLatitude() + "," + s.getLongitude()))
-                .map(station -> enrichWithScore(station, lat, lng))
-                .filter(s -> s.getDistance() <= radiusKm)
-                .sorted(Comparator.comparingDouble(StationWithScore::getDistance))
+                .filter(s -> calculateDistance(lat, lng, s.getLatitude(), s.getLongitude()) <= radiusKm)
+                .sorted(Comparator.comparingDouble(s -> calculateDistance(lat, lng, s.getLatitude(), s.getLongitude())))
                 .limit(limit)
+                .collect(Collectors.toList());
+
+        return enrichBatch(selected, lat, lng);
+    }
+
+    /**
+     * Enrich a list of stations with one batched slot query instead of one query
+     * per station. Distance is computed from (userLat, userLng).
+     */
+    private List<StationWithScore> enrichBatch(List<Station> stations, double userLat, double userLng) {
+        if (stations.isEmpty()) {
+            return new ArrayList<>();
+        }
+        List<Long> ids = stations.stream().map(Station::getId).collect(Collectors.toList());
+        Map<Long, List<ChargerSlot>> slotsByStationId = chargerSlotRepository.findByStationIdIn(ids).stream()
+                .collect(Collectors.groupingBy(slot -> slot.getStation().getId()));
+
+        return stations.stream()
+                .map(station -> {
+                    double distance = calculateDistance(userLat, userLng, station.getLatitude(), station.getLongitude());
+                    List<ChargerSlot> slots = slotsByStationId.getOrDefault(station.getId(), new ArrayList<>());
+                    return enrichWithScore(station, distance, slots);
+                })
                 .collect(Collectors.toList());
     }
 
@@ -196,14 +223,27 @@ public class StationService {
      * Search stations by name or address.
      */
     public List<StationWithScore> searchStations(String query, double lat, double lng, double radiusKm) {
-        List<Station> stations = stationRepository.searchByNameOrAddress(query.toLowerCase().trim());
+        // Escape LIKE wildcards so a query of "%" or "_" can't match everything / behave oddly.
+        String escaped = escapeLike(query.toLowerCase().trim());
+        List<Station> stations = stationRepository.searchByNameOrAddress(escaped);
 
-        return stations.stream()
+        // Same batched-enrich + bounded-result pattern as getNearbyStations.
+        List<Station> selected = stations.stream()
                 .filter(distinctByKey(s -> s.getOcmId() != null ? "ocm_" + s.getOcmId() : s.getLatitude() + "," + s.getLongitude()))
-                .map(station -> enrichWithScore(station, lat, lng))
-                .filter(s -> s.getDistance() <= radiusKm)
-                .sorted(Comparator.comparingDouble(StationWithScore::getDistance))
+                .filter(s -> calculateDistance(lat, lng, s.getLatitude(), s.getLongitude()) <= radiusKm)
+                .sorted(Comparator.comparingDouble(s -> calculateDistance(lat, lng, s.getLatitude(), s.getLongitude())))
+                .limit(50)
                 .collect(Collectors.toList());
+
+        return enrichBatch(selected, lat, lng);
+    }
+
+    /** Escape %, _ and \ so user input is treated literally inside a SQL LIKE pattern. */
+    private String escapeLike(String input) {
+        if (input == null) return "";
+        return input.replace("\\", "\\\\")
+                    .replace("%", "\\%")
+                    .replace("_", "\\_");
     }
 
     /**
@@ -250,6 +290,7 @@ public class StationService {
                 .rating(station.getRating())
                 .isOpen(station.getIsOpen())
                 .meta(station.getMeta())
+                .lastSynced(station.getLastSynced() != null ? station.getLastSynced().toString() : null)
                 .distance(distance)
                 .totalSlots(slots.size())
                 .availableSlots((int) availableCount)
@@ -712,7 +753,10 @@ public class StationService {
                 .map(pt -> String.format(java.util.Locale.US, "%f,%f", pt[0], pt[1]))
                 .collect(Collectors.joining("|"));
 
-        List<StationWithScore> stations = getStationsAlongRoute(waypointsStr, connectorType, 10.0);
+        // Scale the corridor buffer to the route length: tight for dense city routes,
+        // wider for long highway routes (clamped to 2..10 km).
+        double bufferKm = Math.min(10.0, Math.max(2.0, distanceKmObj[0] * 0.03));
+        List<StationWithScore> stations = getStationsAlongRoute(waypointsStr, connectorType, bufferKm);
 
         RoutePlanResponse response = RoutePlanResponse.builder()
                 .fromName(fromName[0])
@@ -759,7 +803,6 @@ public class StationService {
 
         java.net.URI uri = null;
         try {
-            RestTemplate restTemplate = new RestTemplate();
             HttpHeaders headers = new HttpHeaders();
             headers.set("User-Agent", "VoltFlowIndia-EV-Station-Finder/1.0 (contact@voltflowindia.com)");
             HttpEntity<String> entity = new HttpEntity<>(headers);
@@ -826,8 +869,6 @@ public class StationService {
         List<double[]> routePoints = new ArrayList<>();
         java.net.URI uri = null;
         try {
-            RestTemplate restTemplate = new RestTemplate();
-            
             uri = UriComponentsBuilder.fromHttpUrl("https://router.project-osrm.org/route/v1/driving/" + start[1] + "," + start[0] + ";" + end[1] + "," + end[0])
                     .queryParam("overview", "full")
                     .queryParam("geometries", "geojson")
@@ -836,7 +877,11 @@ public class StationService {
 
             log.info("OSRM Request URI: {}", uri);
 
-            Map<?, ?> response = restTemplate.getForObject(uri, Map.class);
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("User-Agent", "VoltFlowIndia-EV-Station-Finder/1.0 (contact@voltflowindia.com)");
+            ResponseEntity<Map> responseEntity = restTemplate.exchange(
+                    uri, HttpMethod.GET, new HttpEntity<>(headers), Map.class);
+            Map<?, ?> response = responseEntity.getBody();
             if (response != null && response.containsKey("routes")) {
                 List<?> routes = (List<?>) response.get("routes");
                 if (routes != null && !routes.isEmpty()) {
