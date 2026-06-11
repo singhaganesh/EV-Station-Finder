@@ -1,4 +1,4 @@
-# 🔌 EV Station Finder
+# 🔌 EV Station  Finder
 
 <div align="center">
 
